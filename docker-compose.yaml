@@ -1,0 +1,72 @@
+services:
+  # Temporal Server (self-hosted)
+  temporal-server:
+    image: temporalio/auto-setup:1.25.2
+    ports:
+      - "7233:7233"
+    environment:
+      - DB=sqlite
+      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
+      - ENABLE_ES=false
+    volumes:
+      - ./temporal-config:/etc/temporal/config/dynamicconfig
+
+  # Temporal UI
+  temporal-ui:
+    image: temporalio/ui:2.34.0
+    ports:
+      - "8088:8080"
+    environment:
+      - TEMPORAL_ADDRESS=temporal-server:7233
+    depends_on:
+      - temporal-server
+
+  # Worker - Order Processing Workflows
+  worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    environment:
+      - TEMPORAL_ADDRESS=temporal-server:7233
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_SERVICE_NAME=temporal-worker
+      - OTEL_RESOURCE_ATTRIBUTES=service.version=1.0.0,deployment.environment=production
+    depends_on:
+      - temporal-server
+      - otel-collector
+
+  # Workflow Starter / API
+  starter:
+    build:
+      context: .
+      dockerfile: starter/Dockerfile
+    ports:
+      - "8005:8005"
+    environment:
+      - TEMPORAL_ADDRESS=temporal-server:7233
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_SERVICE_NAME=temporal-starter
+      - OTEL_RESOURCE_ATTRIBUTES=service.version=1.0.0,deployment.environment=production
+    depends_on:
+      - temporal-server
+      - otel-collector
+
+  # Load Generator
+  load-generator:
+    build:
+      context: .
+      dockerfile: loadgen/Dockerfile
+    environment:
+      - STARTER_URL=http://starter:8005
+      - RPS=${RPS:-3}
+    depends_on:
+      - starter
+
+  # OTel Collector
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.104.0
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    environment:
+      - SIGNOZ_ENDPOINT=${SIGNOZ_ENDPOINT:-http://host.docker.internal:4318}
