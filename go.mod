@@ -1,6 +1,6 @@
 module github.com/pooja-bhavani/signoz-temporal-track
 
-go 1.22
+go 1.23
 
 require (
 	go.temporal.io/sdk v1.31.0
