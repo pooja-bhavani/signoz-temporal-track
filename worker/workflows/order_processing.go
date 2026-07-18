@@ -19,11 +19,8 @@ func OrderProcessingWorkflow(ctx workflow.Context, input shared.OrderInput) (*sh
 		"amount", input.Amount,
 	)
 
-	// Set business context as search attributes for SigNoz correlation
-	_ = workflow.UpsertTypedSearchAttributes(ctx,
-		CustomerTierKey.ValueSet(input.CustomerTier),
-		OrderValueKey.ValueSet(input.Amount),
-	)
+	// Business context is propagated via activity span attributes
+	// (injected in each activity via OTel tracer)
 
 	activities := &Activities{}
 
@@ -111,8 +108,3 @@ func getRetryPolicy(tier string) *temporal.RetryPolicy {
 	}
 }
 
-// Search attribute keys for Temporal
-var (
-	CustomerTierKey = temporal.NewSearchAttributeKeyKeyword("customer_tier")
-	OrderValueKey   = temporal.NewSearchAttributeKeyFloat64("order_value")
-)

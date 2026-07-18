@@ -12,7 +12,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -32,9 +32,8 @@ func InitTelemetry(ctx context.Context, serviceName string) (func(), error) {
 
 	res, err := resource.New(ctx,
 		resource.WithAttributes(
-			semconv.ServiceNameKey.String(serviceName),
-			semconv.ServiceVersionKey.String("1.0.0"),
-			semconv.DeploymentEnvironmentKey.String(os.Getenv("DEPLOYMENT_ENV")),
+			semconv.ServiceName(serviceName),
+			semconv.ServiceVersion("1.0.0"),
 		),
 	)
 	if err != nil {
