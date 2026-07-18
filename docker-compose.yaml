@@ -1,15 +1,30 @@
 services:
+  # PostgreSQL for Temporal
+  temporal-db:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=temporal
+      - POSTGRES_PASSWORD=temporal
+      - POSTGRES_DB=temporal
+    volumes:
+      - temporal-db-data:/var/lib/postgresql/data
+
   # Temporal Server (self-hosted)
   temporal-server:
     image: temporalio/auto-setup:1.25.2
     ports:
       - "7233:7233"
     environment:
-      - DB=sqlite
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=temporal
+      - POSTGRES_PWD=temporal
+      - POSTGRES_SEEDS=temporal-db
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
-      - ENABLE_ES=false
     volumes:
       - ./temporal-config:/etc/temporal/config/dynamicconfig
+    depends_on:
+      - temporal-db
 
   # Temporal UI
   temporal-ui:
@@ -70,3 +85,6 @@ services:
       - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
     environment:
       - SIGNOZ_ENDPOINT=${SIGNOZ_ENDPOINT:-http://host.docker.internal:4318}
+
+volumes:
+  temporal-db-data:
