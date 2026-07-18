@@ -3,6 +3,7 @@ package shared
 import (
 	"context"
 	"os"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -22,6 +23,9 @@ func InitTelemetry(ctx context.Context, serviceName string) (func(), error) {
 	if endpoint == "" {
 		endpoint = "localhost:4317"
 	}
+	// gRPC needs host:port, not a URL
+	endpoint = strings.TrimPrefix(endpoint, "http://")
+	endpoint = strings.TrimPrefix(endpoint, "https://")
 
 	conn, err := grpc.NewClient(endpoint,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
