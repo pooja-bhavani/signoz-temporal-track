@@ -2,6 +2,8 @@ module github.com/pooja-bhavani/signoz-temporal-track
 
 go 1.23
 
+toolchain go1.25.4
+
 require (
 	go.temporal.io/sdk v1.31.0
 	go.temporal.io/sdk/contrib/opentelemetry v0.7.0

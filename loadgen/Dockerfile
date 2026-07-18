@@ -1,4 +1,5 @@
-FROM golang:1.23-alpine AS builder
+FROM golang:latest AS builder
+ENV GOTOOLCHAIN=auto
 WORKDIR /app
 COPY go.mod ./
 COPY loadgen/ loadgen/
