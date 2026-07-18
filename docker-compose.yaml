@@ -49,6 +49,7 @@ services:
     depends_on:
       - temporal-server
       - otel-collector
+    restart: on-failure
 
   # Workflow Starter / API
   starter:
@@ -65,6 +66,7 @@ services:
     depends_on:
       - temporal-server
       - otel-collector
+    restart: on-failure
 
   # Load Generator
   load-generator:
@@ -76,6 +78,7 @@ services:
       - RPS=${RPS:-3}
     depends_on:
       - starter
+    restart: on-failure
 
   # OTel Collector
   otel-collector:
