@@ -3,12 +3,12 @@ package workflows
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"math/rand"
 	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/pooja-bhavani/signoz-temporal-track/shared"
@@ -29,26 +29,24 @@ func (a *Activities) ValidateOrder(ctx context.Context, input shared.OrderInput)
 	)
 	defer span.End()
 
-	// Simulate validation time (varies by order complexity)
 	time.Sleep(time.Duration(20+rand.Intn(30)) * time.Millisecond)
 
-	// Fail 2% of validations
 	if rand.Float64() < 0.02 {
 		span.SetAttributes(attribute.String("validation.failure_reason", "invalid_address"))
-		shared.Logger.LogAttrs(ctx, slog.LevelError, "order validation failed",
-			slog.String("order_id", input.OrderID),
-			slog.String("customer_id", input.CustomerID),
-			slog.String("customer_tier", input.CustomerTier),
-			slog.String("reason", "invalid_address"),
-			slog.String("trace_id", span.SpanContext().TraceID().String()),
+		shared.LogError(ctx, "order validation failed",
+			log.String("order_id", input.OrderID),
+			log.String("customer_id", input.CustomerID),
+			log.String("customer_tier", input.CustomerTier),
+			log.String("reason", "invalid_address"),
+			log.String("trace_id", span.SpanContext().TraceID().String()),
 		)
 		return false, fmt.Errorf("validation error: invalid shipping address")
 	}
 
-	shared.Logger.LogAttrs(ctx, slog.LevelInfo, "order validated",
-		slog.String("order_id", input.OrderID),
-		slog.String("customer_tier", input.CustomerTier),
-		slog.Float64("amount", input.Amount),
+	shared.LogInfo(ctx, "order validated",
+		log.String("order_id", input.OrderID),
+		log.String("customer_tier", input.CustomerTier),
+		log.Float64("amount", input.Amount),
 	)
 	span.SetAttributes(attribute.Bool("validation.passed", true))
 	return true, nil
@@ -65,40 +63,37 @@ func (a *Activities) CheckFraud(ctx context.Context, input shared.OrderInput) (f
 	)
 	defer span.End()
 
-	// Simulate ML model inference time
 	baseLatency := 100
 	if input.Amount > 500 {
-		baseLatency = 300 // High-value orders get deeper analysis
+		baseLatency = 300
 	}
 	time.Sleep(time.Duration(baseLatency+rand.Intn(150)) * time.Millisecond)
 
-	// Generate fraud score
-	score := rand.Float64() * 0.5 // Base: 0-0.5
+	score := rand.Float64() * 0.5
 	if input.Amount > 1000 {
-		score += 0.2 // Higher amounts = higher risk
+		score += 0.2
 	}
 	if input.PaymentMethod == "crypto" {
 		score += 0.15
 	}
 
-	// Fail 3% with timeout (simulates ML service overload)
 	if rand.Float64() < 0.03 {
-		shared.Logger.LogAttrs(ctx, slog.LevelError, "fraud check timeout",
-			slog.String("order_id", input.OrderID),
-			slog.String("customer_id", input.CustomerID),
-			slog.String("customer_tier", input.CustomerTier),
-			slog.Float64("order_amount", input.Amount),
-			slog.String("trace_id", span.SpanContext().TraceID().String()),
+		shared.LogError(ctx, "fraud check timeout",
+			log.String("order_id", input.OrderID),
+			log.String("customer_id", input.CustomerID),
+			log.String("customer_tier", input.CustomerTier),
+			log.Float64("order_amount", input.Amount),
+			log.String("trace_id", span.SpanContext().TraceID().String()),
 		)
-		time.Sleep(25 * time.Second) // Will hit timeout
+		time.Sleep(25 * time.Second)
 		return 0, fmt.Errorf("fraud service timeout")
 	}
 
-	shared.Logger.LogAttrs(ctx, slog.LevelInfo, "fraud check completed",
-		slog.String("order_id", input.OrderID),
-		slog.Float64("fraud_score", score),
-		slog.String("decision", decisionFromScore(score)),
-		slog.String("customer_tier", input.CustomerTier),
+	shared.LogInfo(ctx, "fraud check completed",
+		log.String("order_id", input.OrderID),
+		log.Float64("fraud_score", score),
+		log.String("decision", decisionFromScore(score)),
+		log.String("customer_tier", input.CustomerTier),
 	)
 
 	span.SetAttributes(
@@ -119,11 +114,9 @@ func (a *Activities) ProcessPayment(ctx context.Context, input shared.OrderInput
 	)
 	defer span.End()
 
-	// Simulate payment gateway latency
 	time.Sleep(time.Duration(50+rand.Intn(100)) * time.Millisecond)
 
-	// Tier-based failure rates
-	failRate := 0.08 // free
+	failRate := 0.08
 	switch input.CustomerTier {
 	case "enterprise":
 		failRate = 0.02
@@ -137,24 +130,24 @@ func (a *Activities) ProcessPayment(ctx context.Context, input shared.OrderInput
 			reason = "card_declined"
 		}
 		span.SetAttributes(attribute.String("payment.failure_reason", reason))
-		shared.Logger.LogAttrs(ctx, slog.LevelError, "payment failed",
-			slog.String("order_id", input.OrderID),
-			slog.String("customer_id", input.CustomerID),
-			slog.String("customer_tier", input.CustomerTier),
-			slog.Float64("amount", input.Amount),
-			slog.String("reason", reason),
-			slog.String("payment_method", input.PaymentMethod),
-			slog.String("trace_id", span.SpanContext().TraceID().String()),
+		shared.LogError(ctx, "payment failed",
+			log.String("order_id", input.OrderID),
+			log.String("customer_id", input.CustomerID),
+			log.String("customer_tier", input.CustomerTier),
+			log.Float64("amount", input.Amount),
+			log.String("reason", reason),
+			log.String("payment_method", input.PaymentMethod),
+			log.String("trace_id", span.SpanContext().TraceID().String()),
 		)
 		return 0, fmt.Errorf("payment failed: %s", reason)
 	}
 
-	charged := input.Amount * 1.08 // Add tax
-	shared.Logger.LogAttrs(ctx, slog.LevelInfo, "payment processed",
-		slog.String("order_id", input.OrderID),
-		slog.String("customer_tier", input.CustomerTier),
-		slog.Float64("charged", charged),
-		slog.String("payment_method", input.PaymentMethod),
+	charged := input.Amount * 1.08
+	shared.LogInfo(ctx, "payment processed",
+		log.String("order_id", input.OrderID),
+		log.String("customer_tier", input.CustomerTier),
+		log.Float64("charged", charged),
+		log.String("payment_method", input.PaymentMethod),
 	)
 	span.SetAttributes(
 		attribute.Float64("payment.charged", charged),
@@ -172,18 +165,16 @@ func (a *Activities) ReserveInventory(ctx context.Context, input shared.OrderInp
 	)
 	defer span.End()
 
-	// Simulate DB call
 	time.Sleep(time.Duration(30+rand.Intn(50)) * time.Millisecond)
 
-	// 4% out of stock
 	if rand.Float64() < 0.04 {
 		span.SetAttributes(attribute.String("inventory.failure", "out_of_stock"))
-		shared.Logger.LogAttrs(ctx, slog.LevelWarn, "inventory reservation failed",
-			slog.String("order_id", input.OrderID),
-			slog.String("customer_id", input.CustomerID),
-			slog.Int("items_requested", input.Items),
-			slog.String("reason", "out_of_stock"),
-			slog.String("trace_id", span.SpanContext().TraceID().String()),
+		shared.LogWarn(ctx, "inventory reservation failed",
+			log.String("order_id", input.OrderID),
+			log.String("customer_id", input.CustomerID),
+			log.Int("items_requested", input.Items),
+			log.String("reason", "out_of_stock"),
+			log.String("trace_id", span.SpanContext().TraceID().String()),
 		)
 		return fmt.Errorf("inventory unavailable: items out of stock")
 	}
@@ -203,7 +194,6 @@ func (a *Activities) ScheduleShipping(ctx context.Context, input shared.OrderInp
 
 	time.Sleep(time.Duration(20+rand.Intn(40)) * time.Millisecond)
 
-	// ETA based on tier
 	var eta string
 	switch input.CustomerTier {
 	case "enterprise":

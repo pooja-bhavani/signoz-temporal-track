@@ -2,15 +2,18 @@ package shared
 
 import (
 	"context"
-	"log/slog"
 	"os"
 	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/log"
+	otellog "go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/propagation"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -19,7 +22,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-var Logger *slog.Logger
+var OtelLogger log.Logger
 
 func InitTelemetry(ctx context.Context, serviceName string) (func(), error) {
 	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
@@ -71,21 +74,68 @@ func InitTelemetry(ctx context.Context, serviceName string) (func(), error) {
 	)
 	otel.SetMeterProvider(mp)
 
-	// Structured JSON logger → stdout → Docker → filelog receiver → SigNoz
-	Logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	})).With(
-		slog.String("service.name", serviceName),
-		slog.String("service.version", "1.0.0"),
-		slog.String("deployment.environment", "production"),
+	// Log exporter (direct OTLP gRPC → SigNoz Logs)
+	logExporter, err := otlploggrpc.New(ctx, otlploggrpc.WithGRPCConn(conn))
+	if err != nil {
+		return nil, err
+	}
+
+	lp := sdklog.NewLoggerProvider(
+		sdklog.WithProcessor(sdklog.NewBatchProcessor(logExporter)),
+		sdklog.WithResource(res),
 	)
+
+	OtelLogger = lp.Logger(serviceName)
 
 	shutdown := func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		tp.Shutdown(ctx)
 		mp.Shutdown(ctx)
+		lp.Shutdown(ctx)
 	}
 
 	return shutdown, nil
+}
+
+// LogInfo emits a structured INFO log to SigNoz
+func LogInfo(ctx context.Context, msg string, attrs ...otellog.KeyValue) {
+	if OtelLogger == nil {
+		return
+	}
+	var record otellog.Record
+	record.SetTimestamp(time.Now())
+	record.SetSeverity(otellog.SeverityInfo)
+	record.SetSeverityText("INFO")
+	record.SetBody(otellog.StringValue(msg))
+	record.AddAttributes(attrs...)
+	OtelLogger.Emit(ctx, record)
+}
+
+// LogError emits a structured ERROR log to SigNoz
+func LogError(ctx context.Context, msg string, attrs ...otellog.KeyValue) {
+	if OtelLogger == nil {
+		return
+	}
+	var record otellog.Record
+	record.SetTimestamp(time.Now())
+	record.SetSeverity(otellog.SeverityError)
+	record.SetSeverityText("ERROR")
+	record.SetBody(otellog.StringValue(msg))
+	record.AddAttributes(attrs...)
+	OtelLogger.Emit(ctx, record)
+}
+
+// LogWarn emits a structured WARN log to SigNoz
+func LogWarn(ctx context.Context, msg string, attrs ...otellog.KeyValue) {
+	if OtelLogger == nil {
+		return
+	}
+	var record otellog.Record
+	record.SetTimestamp(time.Now())
+	record.SetSeverity(otellog.SeverityWarn)
+	record.SetSeverityText("WARN")
+	record.SetBody(otellog.StringValue(msg))
+	record.AddAttributes(attrs...)
+	OtelLogger.Emit(ctx, record)
 }

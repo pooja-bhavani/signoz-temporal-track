@@ -86,7 +86,6 @@ services:
     command: ["--config=/etc/otel-collector-config.yaml"]
     volumes:
       - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
     environment:
       - SIGNOZ_ENDPOINT=${SIGNOZ_ENDPOINT:-http://host.docker.internal:4318}
 
