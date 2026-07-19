@@ -7,13 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/propagation"
-	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -74,26 +71,20 @@ func InitTelemetry(ctx context.Context, serviceName string) (func(), error) {
 	)
 	otel.SetMeterProvider(mp)
 
-	// Log exporter (OTel logs → SigNoz)
-	logExporter, err := otlploggrpc.New(ctx, otlploggrpc.WithGRPCConn(conn))
-	if err != nil {
-		return nil, err
-	}
-
-	lp := sdklog.NewLoggerProvider(
-		sdklog.WithProcessor(sdklog.NewBatchProcessor(logExporter)),
-		sdklog.WithResource(res),
+	// Structured JSON logger → stdout → Docker → filelog receiver → SigNoz
+	Logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	})).With(
+		slog.String("service.name", serviceName),
+		slog.String("service.version", "1.0.0"),
+		slog.String("deployment.environment", "production"),
 	)
-
-	// Structured logger bridged to OTel (logs appear in SigNoz Logs tab)
-	Logger = otelslog.NewLogger(serviceName, otelslog.WithLoggerProvider(lp))
 
 	shutdown := func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		tp.Shutdown(ctx)
 		mp.Shutdown(ctx)
-		lp.Shutdown(ctx)
 	}
 
 	return shutdown, nil

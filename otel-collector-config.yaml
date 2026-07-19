@@ -14,6 +14,39 @@ receivers:
       disk:
       network:
 
+  filelog/dockerlogs:
+    include:
+      - /var/lib/docker/containers/*/*.log
+    start_at: end
+    include_file_path: true
+    include_file_name: false
+    operators:
+      - type: json_parser
+        id: parser-docker
+        output: extract_metadata
+        timestamp:
+          parse_from: attributes.time
+          layout: '%Y-%m-%dT%H:%M:%S.%LZ'
+      - type: move
+        id: extract_metadata
+        from: attributes.log
+        to: body
+        output: parse_body
+      - type: json_parser
+        id: parse_body
+        parse_from: body
+        if: 'body matches "^\\{.*\\}$"'
+        output: severity_parser
+      - type: severity_parser
+        id: severity_parser
+        parse_from: attributes.level
+        if: 'attributes.level != nil'
+        mapping:
+          info: INFO
+          warn: WARN
+          error: ERROR
+          debug: DEBUG
+
 processors:
   batch:
     send_batch_size: 1000
@@ -25,10 +58,23 @@ processors:
         value: production
         action: upsert
 
+  resource/logs:
+    attributes:
+      - key: source
+        value: docker
+        action: upsert
+
   memory_limiter:
     check_interval: 5s
     limit_mib: 512
     spike_limit_mib: 128
+
+  filter/logs:
+    logs:
+      include:
+        match_type: regexp
+        bodies:
+          - '.*"service.name":"temporal-worker".*'
 
 exporters:
   otlphttp:
@@ -54,4 +100,8 @@ service:
     logs:
       receivers: [otlp]
       processors: [memory_limiter, resource, batch]
+      exporters: [otlphttp]
+    logs/docker:
+      receivers: [filelog/dockerlogs]
+      processors: [memory_limiter, filter/logs, resource/logs, batch]
       exporters: [otlphttp]
