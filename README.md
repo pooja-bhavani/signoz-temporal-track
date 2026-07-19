@@ -2,80 +2,163 @@
 
 **WeMakeDevs x SigNoz Hackathon — Track 2: Signals & Dashboards**
 
-Deep OpenTelemetry instrumentation of Temporal workflows with cross-signal correlation dashboards and predictive SLO alerting in SigNoz.
+A production-grade observability system for Temporal workflows that goes beyond basic metrics. Uses **Z-Score anomaly detection**, **per-tier SLO error budgets**, and **latency drift analysis** via ClickHouse SQL to surface root causes that standard dashboards miss.
+
+---
+
+## What This Demonstrates
+
+| SigNoz Capability | How We Use It |
+|---|---|
+| **ClickHouse SQL (CTEs + CROSS JOIN)** | Z-Score anomaly detection, baseline drift comparison |
+| **Custom OTel Instrumentation** | Business context (`customer.tier`, `order.amount`) in every span |
+| **Multi-Signal Correlation** | Traces + Metrics + Structured Logs via OTel SDK |
+| **Query Builder Mastery** | Bar charts, time series with Query Builder for trace data |
+| **Template Augmentation** | Official Temporal SDK template + 10 custom advanced panels |
+
+---
 
 ## Architecture
 
 ```
-                    ┌────────────────────┐
-                    │   Load Generator   │
-                    │   Multi-tenant     │
-                    │   order traffic    │
-                    └────────┬───────────┘
-                             │ HTTP POST /order
-                             ▼
-                    ┌────────────────────┐
-                    │   Starter API      │
-                    │   :8005            │
-                    │   (starts workflows)│
-                    └────────┬───────────┘
-                             │ gRPC
-                             ▼
-┌──────────────────────────────────────────────────────┐
-│              Temporal Server (:7233)                   │
-│   ┌─────────────────────────────────────────────┐    │
-│   │       OrderProcessingWorkflow                │    │
-│   │                                             │    │
-│   │  ValidateOrder → CheckFraud → ProcessPayment│    │
-│   │       → ReserveInventory → ScheduleShipping │    │
-│   │                                             │    │
-│   │  (Saga pattern with compensation)           │    │
-│   └─────────────────────────────────────────────┘    │
-└──────────────────────────────────────────────────────┘
-                             │
-                             ▼
-                    ┌────────────────────┐
-                    │   Worker           │
-                    │   (executes        │
-                    │   activities)      │
-                    │   + OTel SDK       │
-                    └────────┬───────────┘
-                             │ OTLP gRPC
-                             ▼
-                    ┌────────────────────┐
-                    │  OTel Collector    │
-                    │  + hostmetrics     │
-                    └────────┬───────────┘
-                             │ OTLP HTTP
-                             ▼
-                    ┌────────────────────┐
-                    │  SigNoz            │
-                    │  Traces + Metrics  │
-                    │  + Logs            │
-                    └────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                    Load Generator (3 RPS)                         │
+│          8 customers × 3 tiers × 5 payment methods               │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │ HTTP POST /order
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Starter API (:8005)                            │
+│                    Starts Temporal workflows                      │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │ gRPC
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│              Temporal Server (:7233) + PostgreSQL                 │
+│                                                                   │
+│   OrderProcessingWorkflow (Saga Pattern)                         │
+│   ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐   │
+│   │ Validate │──▶│  Fraud   │──▶│ Payment  │──▶│Inventory │──▶ Ship
+│   │  Order   │   │  Check   │   │ Process  │   │ Reserve  │   │
+│   └──────────┘   └──────────┘   └──────────┘   └──────────┘   │
+│                       │                              │            │
+│                  ML timeout (3%)              Out of stock (4%)   │
+│                                              ──▶ RefundPayment   │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Worker (OTel Instrumented)                     │
+│                                                                   │
+│  Traces: Custom spans with business attributes                   │
+│  Metrics: Temporal SDK native (histogram, counters)              │
+│  Logs: Structured (slog → OTel Log Bridge → OTLP)               │
+│                                                                   │
+│  Every span carries: customer.id, customer.tier,                 │
+│  order.amount, payment.method, fraud.score                       │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │ OTLP gRPC
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│          OpenTelemetry Collector (contrib 0.104.0)                │
+│                                                                   │
+│  Receivers: otlp (gRPC + HTTP), hostmetrics                     │
+│  Processors: memory_limiter, resource enrichment, batch          │
+│  Exporters: otlphttp → SigNoz                                   │
+│  Pipelines: traces, metrics, logs (all 3 signals)               │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │ OTLP HTTP
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                       SigNoz (EC2)                                │
+│                                                                   │
+│  Dashboard 1: Temporal SDK Metrics (imported template)           │
+│  Dashboard 2: SLO & Root Cause Correlator (custom)              │
+│                                                                   │
+│  10 custom panels: 3 Value + 4 Time Series + 3 Table            │
+│  Advanced ClickHouse: CTEs, CROSS JOIN, stddevPop(), quantile()  │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-## What Makes This Win Track 2
+---
 
-### Template Augmentation Strategy
-1. **Import** the official SigNoz Temporal Go SDK dashboard template (baseline worker metrics)
-2. **Augment** with 7 advanced custom ClickHouse panels that show Query Builder mastery
+## Dashboard Panels
 
-### Custom OTel Instrumentation (Business Context)
-- Every Temporal activity span carries: `customer.id`, `customer.tier`, `order.amount`, `payment.method`
-- Temporal SDK's `opentelemetry` contrib package for native tracing + metrics
-- Custom search attributes (`customer_tier`, `order_value`) propagated through workflow headers
+### Row 1: Status Indicators (Value Panels)
+| Panel | What It Shows |
+|---|---|
+| **Fraud Check Timeout Rate %** | % of fraud checks exceeding 1s — ML service overload signal |
+| **Enterprise Error Budget Remaining %** | SLO budget remaining for highest-priority tier |
+| **Workflows Processed (1h)** | Total unique workflow executions |
 
-### Advanced ClickHouse Queries (3 flagship)
-1. **Z-Score Anomaly Detection** — rolling 15-min baseline with stddev, flags spikes dynamically (not static thresholds)
-2. **Parent-Child Trace Correlation** — self-join on `spanId = parentSpanId` to find which activity causes workflow slowdowns
-3. **Predictive SLO Depletion** — 6-hour burn rate extrapolated to "hours until budget exhausted"
+### Row 2: Time Series (Trends)
+| Panel | What It Shows |
+|---|---|
+| **Traffic by Customer Tier** | Volume per tier over time — identifies traffic imbalances |
+| **SLO Error Budget Burn Rate** | Per-tier budget burn trending — predicts breaches |
+| **Activity P99 Latency Trend** | Per-activity P99 over time — identifies spikes |
+| **Workflow Step Duration Breakdown** | Stacked area showing which step dominates total time |
 
-### Cross-Signal Correlation
-4. **Activity Retries ↔ Error Logs** — correlates retry spikes with log frequency in same time window
-5. **Activity Latency vs Worker CPU** — maps P99 execution time against infrastructure metrics
-6. **Workflow Step Bottleneck** — identifies which pipeline stage is the throughput limiter
-7. **End-to-End SLO by Tier** — per-tier workflow success rate vs targets
+### Row 3: Advanced Tables (SRE Analysis)
+| Panel | What It Shows |
+|---|---|
+| **Activity Z-Score Anomaly Detector** | Uses `stddevPop()` to flag statistically anomalous activities |
+| **Per-Tier Latency Drift (Blast Radius)** | CROSS JOIN baseline comparison — detects fleet drift |
+| **SLO Error Budget Burn Rate** | Google SRE methodology — budget consumed vs allowed |
+
+---
+
+## Key ClickHouse SQL Techniques
+
+### 1. Z-Score Anomaly Detection
+```sql
+-- Uses stddevPop() for statistical standard deviation
+-- Z-Score > 3 = activity P99 is 3σ above mean (statistically anomalous)
+round((p99_ms - avg_ms) / nullIf(stddev_ms, 0), 2) AS z_score
+```
+
+### 2. CROSS JOIN Drift Detection
+```sql
+-- 2-hour global baseline (CTE) joined against 30-min live data
+-- Detects relative deviation, not absolute thresholds
+FROM tier_live tl CROSS JOIN global_baseline gb
+WHERE ((tl.tier_p99_ms - gb.global_p99_ms) / gb.global_p99_ms) > 0.5
+```
+
+### 3. SLO Error Budget Math
+```sql
+-- Google SRE: budget = (1 - SLO_target) × total_requests
+-- Burn rate = actual_failures / budget_allowed
+round(toFloat64(failed) / nullIf((1 - 0.999) * count(), 0) * 100, 1) AS burn_pct
+```
+
+---
+
+## Multi-Signal Instrumentation
+
+### Traces (Custom Business Context)
+Every activity span includes:
+- `customer.id` — which tenant triggered this
+- `customer.tier` — enterprise/pro/free (enables per-tier SLO)
+- `order.amount` — monetary value (enables cost-of-error analysis)
+- `payment.method` — credit_card/crypto/paypal
+- `fraud.score` — ML confidence (0-1)
+
+### Metrics (Temporal SDK Native)
+Via `go.temporal.io/sdk/contrib/opentelemetry`:
+- `temporal_workflow_endtoend_latency` (histogram)
+- `temporal_activity_execution_latency` (histogram)
+- `temporal_activity_succeed_endtoend_latency` (histogram)
+- `temporal_workflow_task_schedule_to_start_latency` (histogram)
+- Host metrics: CPU, memory, disk, network (via hostmetrics receiver)
+
+### Logs (Structured OTel Bridge)
+Via `go.opentelemetry.io/contrib/bridges/otelslog`:
+- Error logs with `trace_id` for correlation
+- Business context in every log: `order_id`, `customer_tier`, `amount`
+- Severity levels: INFO (success), WARN (inventory failures), ERROR (payment/fraud failures)
+
+---
 
 ## Quick Start
 
@@ -84,58 +167,72 @@ Deep OpenTelemetry instrumentation of Temporal workflows with cross-signal corre
 git clone https://github.com/pooja-bhavani/signoz-temporal-track.git
 cd signoz-temporal-track
 
-# 2. Set SigNoz endpoint
+# 2. Set SigNoz endpoint (your SigNoz instance's OTLP HTTP port)
 echo "SIGNOZ_ENDPOINT=http://172.17.0.1:4318" > .env
 
 # 3. Start everything
 docker compose up --build -d
 
-# 4. Verify
+# 4. Verify workflows are running
 docker compose logs --tail=5 load-generator
-# Should show: OK order=ORD-000001 customer=cust-acme-001 tier=enterprise amount=$...
+# Output: OK order=ORD-000001 customer=cust-acme-001 tier=enterprise amount=$...
 
 # 5. Open SigNoz → Services → temporal-worker, temporal-starter
+# 6. Import dashboards from dashboards/ directory
 ```
+
+---
 
 ## Importing Dashboards
 
-### Step 1: Import official Temporal template
-Download from: `https://raw.githubusercontent.com/SigNoz/dashboards/main/temporal.io/temporal-go-sdk-metrics.json`
+### Dashboard 1: Official Temporal SDK Metrics
+```
+SigNoz → Dashboards → New Dashboard → Import JSON
+File: dashboards/temporal-go-sdk-metrics.json
+```
 
-SigNoz UI → Dashboards → New Dashboard → Import JSON → paste/upload
+### Dashboard 2: Custom SLO & Root Cause Correlator
+```
+SigNoz → Dashboards → New Dashboard → Import JSON
+File: dashboards/temporal-slo-correlator.json
+```
 
-### Step 2: Create custom panels
-Dashboard → Add Panel → ClickHouse Query → paste queries from `clickhouse-queries/advanced.sql`
+Or create panels manually using queries from `clickhouse-queries/advanced.sql`
+
+---
 
 ## Project Structure
 
 ```
 signoz-temporal-track/
-├── docker-compose.yaml
-├── otel-collector-config.yaml
+├── docker-compose.yaml              # Full stack (Temporal + Worker + Collector)
+├── otel-collector-config.yaml       # 3-pipeline config (traces + metrics + logs)
 ├── go.mod
 ├── shared/
-│   ├── telemetry.go           # OTel init (traces + metrics)
-│   └── workflows.go           # Shared types
+│   ├── telemetry.go                 # OTel init (traces + metrics + logs)
+│   └── workflows.go                 # Shared types (OrderInput, OrderResult)
 ├── worker/
-│   ├── main.go                # Temporal worker with OTel interceptor
+│   ├── main.go                      # Temporal worker with OTel interceptor
 │   ├── workflows/
-│   │   ├── order_processing.go  # Main workflow (5-step pipeline)
-│   │   └── activities.go        # Activities with custom spans + business context
+│   │   ├── order_processing.go      # 5-step saga with compensation
+│   │   └── activities.go            # Activities with custom spans + structured logs
 │   └── Dockerfile
 ├── starter/
-│   ├── main.go                # HTTP API that starts workflows
+│   ├── main.go                      # HTTP API that starts workflows
 │   └── Dockerfile
 ├── loadgen/
-│   ├── main.go                # Multi-tenant traffic generator
+│   ├── main.go                      # Multi-tenant traffic generator (8 customers)
 │   └── Dockerfile
 ├── dashboards/
-│   └── temporal-go-sdk-metrics.json  # Official SigNoz template
+│   ├── temporal-go-sdk-metrics.json # Official SigNoz Temporal template
+│   └── temporal-slo-correlator.json # Custom advanced dashboard (importable)
 ├── clickhouse-queries/
-│   └── advanced.sql           # 7 advanced cross-signal queries
+│   └── advanced.sql                 # 9 advanced queries with explanations
 └── temporal-config/
     └── development-sql.yaml
 ```
+
+---
 
 ## Environment Variables
 
@@ -145,20 +242,29 @@ signoz-temporal-track/
 | `RPS` | `3` | Orders per second from load generator |
 | `TEMPORAL_ADDRESS` | `temporal-server:7233` | Temporal server address |
 
-## Demo Scenario
+---
 
-1. Start services → load generator creates orders across enterprise/pro/free tiers
-2. SigNoz shows Temporal worker metrics + custom activity traces
-3. Z-Score panel detects when fraud check latency spikes (high-value orders)
-4. Parent-child panel shows fraud check is 80%+ of total workflow time for flagged orders
-5. SLO panel shows enterprise tier maintaining 99.9% while free tier burns budget faster
-6. Predictive query shows "12.5 hours to budget exhaustion" for free tier
+## Why This Wins Track 2
+
+1. **ClickHouse SQL mastery** — CTEs, CROSS JOIN, stddevPop(), quantile(), conditional aggregation, self-JOIN patterns
+2. **Statistical anomaly detection** — Z-Score (not static thresholds) identifies which activity is statistically deviating
+3. **Google SRE methodology** — Error budgets per tier with burn rate prediction
+4. **Fleet drift detection** — Compares live data against rolling baseline to surface only anomalous segments
+5. **All 3 OTel signals** — Traces + Metrics + Structured Logs flowing through SigNoz
+6. **Business context in spans** — `customer.tier` enables per-tenant SLO (not just service-level)
+7. **Template Augmentation** — Official template as baseline + 10 custom panels showing Query Builder mastery
+8. **Production patterns** — Saga compensation, multi-tenant load, realistic failure injection
+9. **Importable dashboard JSON** — Judges can deploy and see results immediately
+10. **Real running system** — Not mock data; actual Temporal workflows processing orders
+
+---
 
 ## Tech Stack
 
-- **Go 1.22** + Temporal SDK v1.31
-- **Temporal Server** 1.25 (self-hosted, SQLite)
-- **OpenTelemetry Go SDK** + Temporal OTel contrib (traces + metrics)
-- **OTel Collector Contrib** 0.104.0
-- **SigNoz** (ClickHouse backend)
-- **Docker Compose**
+- **Go 1.23** + Temporal SDK v1.30.0
+- **Temporal Server** 1.25.2 (self-hosted, PostgreSQL)
+- **OpenTelemetry Go SDK** 1.31.0 + Temporal OTel contrib 0.6.0
+- **OTel Log Bridge** (slog → OTLP) for structured logs
+- **OTel Collector Contrib** 0.104.0 (3 pipelines: traces, metrics, logs)
+- **SigNoz** (ClickHouse backend, self-hosted on EC2)
+- **Docker Compose** (single command deploy)

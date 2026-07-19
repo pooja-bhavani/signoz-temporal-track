@@ -1,233 +1,238 @@
 -- ============================================================
 -- ADVANCED CLICKHOUSE QUERIES FOR TEMPORAL + SIGNOZ
 -- Track 2: Signals & Dashboards — "Template Augmentation" Strategy
+-- Table: signoz_traces.distributed_signoz_index_v3
 -- ============================================================
 
 
 -- ============================================================
--- QUERY 1: Dynamic Anomaly Detection (Z-Score) for Workflow Latency
--- Uses window functions to calculate rolling baseline and flag outliers.
--- Replaces static threshold alerts with mathematical anomaly detection.
+-- QUERY 1: Z-Score Anomaly Detection per Activity
+-- Uses stddevPop() to calculate statistical outliers per activity.
+-- Flags activities where P99 is >3 standard deviations above mean.
 -- ============================================================
-WITH
-    minute_stats AS (
-        SELECT
-            toStartOfInterval(timestamp, INTERVAL 1 MINUTE) AS minute,
-            serviceName,
-            avg(durationNano / 1000000) AS avg_latency_ms
-        FROM signoz_traces.signoz_index_v3
-        WHERE timestamp >= now() - INTERVAL 4 HOUR
-        GROUP BY minute, serviceName
-    ),
-    moving_metrics AS (
-        SELECT
-            minute,
-            serviceName,
-            avg_latency_ms,
-            avg(avg_latency_ms) OVER (PARTITION BY serviceName ORDER BY minute ROWS BETWEEN 15 PRECEDING AND 1 PRECEDING) as rolling_avg,
-            stddevPop(avg_latency_ms) OVER (PARTITION BY serviceName ORDER BY minute ROWS BETWEEN 15 PRECEDING AND 1 PRECEDING) as rolling_stddev
-        FROM minute_stats
-    )
+WITH activity_stats AS (
+    SELECT
+        name AS "Activity",
+        count() AS "Executions",
+        round(avg(duration_nano) / 1000000, 2) AS avg_ms,
+        round(stddevPop(duration_nano) / 1000000, 2) AS stddev_ms,
+        round(quantile(0.50)(duration_nano) / 1000000, 2) AS "P50 (ms)",
+        round(quantile(0.95)(duration_nano) / 1000000, 2) AS "P95 (ms)",
+        round(quantile(0.99)(duration_nano) / 1000000, 2) AS "P99 (ms)"
+    FROM signoz_traces.distributed_signoz_index_v3
+    WHERE timestamp >= now() - INTERVAL 1 HOUR
+        AND name LIKE 'activity.%'
+        AND serviceName = 'temporal-worker'
+    GROUP BY name
+    HAVING "Executions" >= 10
+)
 SELECT
-    minute,
-    serviceName,
-    round(avg_latency_ms, 2) AS current_latency_ms,
-    round(rolling_avg, 2) AS baseline_avg_ms,
-    round(rolling_stddev, 2) AS baseline_stddev,
-    round((avg_latency_ms - rolling_avg) / NULLIF(rolling_stddev, 0), 2) AS z_score,
+    "Activity",
+    "Executions",
+    "P50 (ms)",
+    "P95 (ms)",
+    "P99 (ms)",
+    round(("P99 (ms)" - avg_ms) / nullIf(stddev_ms, 0), 2) AS "Z-Score (P99)",
+    round(("P95 (ms)" - "P50 (ms)") / nullIf("P50 (ms)", 0) * 100, 1) AS "Tail Spread %",
     CASE
-        WHEN ((avg_latency_ms - rolling_avg) / NULLIF(rolling_stddev, 0)) > 3 THEN 'ANOMALY_SPIKE'
-        WHEN ((avg_latency_ms - rolling_avg) / NULLIF(rolling_stddev, 0)) < -3 THEN 'ANOMALY_DROP'
-        ELSE 'NORMAL'
-    END AS status
-FROM moving_metrics
-WHERE minute >= now() - INTERVAL 1 HOUR
-ORDER BY minute DESC, z_score DESC;
+        WHEN ("P99 (ms)" - avg_ms) / nullIf(stddev_ms, 0) > 3.0 THEN '🔴 ANOMALOUS'
+        WHEN ("P99 (ms)" - avg_ms) / nullIf(stddev_ms, 0) > 2.0 THEN '🟡 WARNING'
+        WHEN ("P95 (ms)" - "P50 (ms)") / nullIf("P50 (ms)", 0) > 1.0 THEN '🟠 LONG TAIL'
+        ELSE '🟢 NORMAL'
+    END AS "Health"
+FROM activity_stats
+ORDER BY "Z-Score (P99)" DESC;
 
 
 -- ============================================================
--- QUERY 2: Parent-Child Distributed Trace Correlation (Root Cause Finder)
--- Self-joins trace spans to find slow parent calls caused by slow children.
--- Shows which downstream activity is responsible for workflow delays.
+-- QUERY 2: Per-Tier Latency Drift (Blast Radius Detection)
+-- Compares 30-min live data against 2-hour global baseline using CROSS JOIN.
+-- Surfaces only tiers that are mathematically deviating from fleet norm.
 -- ============================================================
+WITH global_baseline AS (
+    SELECT
+        avg(duration_nano) / 1000000 AS global_avg_ms,
+        quantile(0.99)(duration_nano) / 1000000 AS global_p99_ms
+    FROM signoz_traces.distributed_signoz_index_v3
+    WHERE timestamp >= now() - INTERVAL 2 HOUR
+        AND name LIKE 'activity.%'
+        AND serviceName = 'temporal-worker'
+),
+tier_live AS (
+    SELECT
+        attributes_string['customer.tier'] AS tier,
+        count() AS span_count,
+        round(quantile(0.99)(duration_nano) / 1000000, 2) AS tier_p99_ms,
+        round(avg(duration_nano) / 1000000, 2) AS tier_avg_ms,
+        round(countIf(has_error = true) * 100.0 / count(), 2) AS error_rate_pct
+    FROM signoz_traces.distributed_signoz_index_v3
+    WHERE timestamp >= now() - INTERVAL 30 MINUTE
+        AND name LIKE 'activity.%'
+        AND serviceName = 'temporal-worker'
+        AND attributes_string['customer.tier'] != ''
+    GROUP BY tier
+    HAVING span_count >= 5
+)
 SELECT
-    parent.traceId AS trace_id,
-    parent.serviceName AS workflow_service,
-    parent.name AS parent_operation,
-    (parent.durationNano / 1000000) AS total_latency_ms,
-    child.serviceName AS activity_service,
-    child.name AS child_operation,
-    (child.durationNano / 1000000) AS child_latency_ms,
-    round((child.durationNano * 100.0 / parent.durationNano), 2) AS percent_time_in_child,
-    parent.stringTagMap['customer.tier'] AS affected_tier
-FROM signoz_traces.signoz_index_v3 AS parent
-JOIN signoz_traces.signoz_index_v3 AS child
-    ON parent.traceId = child.traceId
-    AND parent.spanId = child.parentSpanId
-WHERE parent.timestamp >= now() - INTERVAL 1 HOUR
-    AND parent.kind = 2  -- Server span (workflow)
-    AND child.kind = 3   -- Client span (activity call)
-    AND (parent.durationNano / 1000000) > 500  -- Only slow workflows (>500ms)
-ORDER BY percent_time_in_child DESC
-LIMIT 50;
-
-
--- ============================================================
--- QUERY 3: Predictive Error Budget Depletion (Forecasting)
--- Calculates 6-hour burn rate and extrapolates time to SLO breach.
--- ============================================================
-WITH
-    hourly_stats AS (
-        SELECT
-            stringTagMap['customer.tier'] AS tier,
-            toStartOfInterval(timestamp, INTERVAL 1 HOUR) as hour_bucket,
-            count() AS total_requests,
-            countIf(statusCode = 2) AS error_count
-        FROM signoz_traces.signoz_index_v3
-        WHERE timestamp >= now() - INTERVAL 6 HOUR
-            AND kind = 2
-            AND stringTagMap['customer.tier'] != ''
-        GROUP BY tier, hour_bucket
-    ),
-    burn_rates AS (
-        SELECT
-            tier,
-            sum(error_count) as total_errors_6h,
-            sum(total_requests) as total_reqs_6h,
-            sum(error_count) / sum(total_requests) as current_error_rate,
-            CASE tier
-                WHEN 'enterprise' THEN 0.001  -- 99.9% SLO
-                WHEN 'pro' THEN 0.005         -- 99.5% SLO
-                ELSE 0.01                     -- 99.0% SLO
-            END as error_budget_allowance
-        FROM hourly_stats
-        GROUP BY tier
-    )
-SELECT
-    tier,
-    total_reqs_6h,
-    total_errors_6h,
-    round(current_error_rate * 100, 4) AS error_rate_pct,
-    round(error_budget_allowance * 100, 2) AS budget_allowance_pct,
-    round((error_budget_allowance - current_error_rate) * 100, 4) AS margin_remaining_pct,
+    tl.tier AS "Customer Tier",
+    tl.tier_p99_ms AS "P99 (ms)",
+    round(gb.global_p99_ms, 2) AS "Baseline P99 (ms)",
+    round(((tl.tier_p99_ms - gb.global_p99_ms) / gb.global_p99_ms) * 100, 1) AS "Drift %",
+    tl.error_rate_pct AS "Error Rate %",
+    tl.span_count AS "Total Spans",
     CASE
-        WHEN current_error_rate >= error_budget_allowance THEN 'BUDGET EXHAUSTED'
-        WHEN current_error_rate = 0 THEN 'INFINITE'
-        ELSE toString(round((error_budget_allowance / current_error_rate) * 6, 1)) || ' hours'
-    END AS time_to_exhaustion,
+        WHEN ((tl.tier_p99_ms - gb.global_p99_ms) / gb.global_p99_ms) > 1.0 THEN '🔴 CRITICAL'
+        WHEN ((tl.tier_p99_ms - gb.global_p99_ms) / gb.global_p99_ms) > 0.5 THEN '🟡 DRIFTING'
+        WHEN ((tl.tier_p99_ms - gb.global_p99_ms) / gb.global_p99_ms) > 0.1 THEN '🟠 ELEVATED'
+        WHEN ((tl.tier_p99_ms - gb.global_p99_ms) / gb.global_p99_ms) < -0.1 THEN '🔵 UNDER-BASELINE'
+        ELSE '🟢 HEALTHY'
+    END AS "Status"
+FROM tier_live tl
+CROSS JOIN global_baseline gb
+ORDER BY "Drift %" DESC;
+
+
+-- ============================================================
+-- QUERY 3: SLO Error Budget Burn Rate per Customer Tier
+-- Implements Google SRE Error Budget methodology.
+-- Calculates budget consumed vs allowed, flags tiers at risk.
+-- ============================================================
+WITH tier_slo AS (
+    SELECT
+        attributes_string['customer.tier'] AS tier,
+        count() AS total_workflows,
+        countIf(has_error = true) AS failed_workflows,
+        CASE
+            WHEN attributes_string['customer.tier'] = 'enterprise' THEN 0.999
+            WHEN attributes_string['customer.tier'] = 'pro' THEN 0.995
+            ELSE 0.990
+        END AS slo_target
+    FROM signoz_traces.distributed_signoz_index_v3
+    WHERE timestamp >= now() - INTERVAL 1 HOUR
+        AND name LIKE 'activity.%'
+        AND serviceName = 'temporal-worker'
+        AND attributes_string['customer.tier'] != ''
+    GROUP BY tier
+)
+SELECT
+    tier AS "Tier",
+    total_workflows AS "Total Requests",
+    failed_workflows AS "Failures",
+    slo_target * 100 AS "SLO Target %",
+    round((1 - (toFloat64(failed_workflows) / total_workflows)) * 100, 3) AS "Actual Uptime %",
+    round((1 - slo_target) * total_workflows, 1) AS "Error Budget (allowed)",
+    failed_workflows AS "Budget Consumed",
+    round(toFloat64(failed_workflows) / nullIf((1 - slo_target) * total_workflows, 0) * 100, 1) AS "Budget Burn %",
     CASE
-        WHEN current_error_rate >= error_budget_allowance THEN 'CRITICAL'
-        WHEN current_error_rate >= error_budget_allowance * 0.5 THEN 'WARNING'
-        ELSE 'HEALTHY'
-    END AS status
-FROM burn_rates
-ORDER BY current_error_rate DESC;
+        WHEN toFloat64(failed_workflows) / nullIf((1 - slo_target) * total_workflows, 0) > 1.0 THEN '🔴 BUDGET EXHAUSTED'
+        WHEN toFloat64(failed_workflows) / nullIf((1 - slo_target) * total_workflows, 0) > 0.7 THEN '🟡 BUDGET AT RISK'
+        WHEN toFloat64(failed_workflows) / nullIf((1 - slo_target) * total_workflows, 0) > 0.4 THEN '🟠 BURNING FAST'
+        ELSE '🟢 WITHIN BUDGET'
+    END AS "Status"
+FROM tier_slo
+ORDER BY "Budget Burn %" DESC;
 
 
 -- ============================================================
--- QUERY 4: Temporal Activity Retry Correlation with Error Logs
--- Cross-signal: correlates retry spikes (traces) with error log patterns.
--- ============================================================
-SELECT
-    toStartOfInterval(t.timestamp, INTERVAL 5 MINUTE) AS interval,
-    t.name AS activity_name,
-    count() AS total_executions,
-    countIf(t.statusCode = 2) AS failed_executions,
-    -- Count retries (attempt > 1 shown by repeated activity spans in same workflow)
-    countIf(toInt32OrZero(t.stringTagMap['temporalActivityAttempt']) > 1) AS retried_executions,
-    -- Correlate with error logs in the same window
-    (SELECT count()
-     FROM signoz_logs.logs
-     WHERE timestamp >= interval
-       AND timestamp < interval + INTERVAL 5 MINUTE
-       AND severity_text = 'ERROR'
-    ) AS error_log_count,
-    round(countIf(t.statusCode = 2) * 100.0 / count(), 2) AS failure_rate_pct
-FROM signoz_traces.signoz_index_v3 AS t
-WHERE t.timestamp >= now() - INTERVAL 1 HOUR
-    AND t.name LIKE 'activity.%'
-GROUP BY interval, activity_name
-ORDER BY interval DESC, retried_executions DESC;
-
-
--- ============================================================
--- QUERY 5: Activity Latency vs Worker CPU (Cross-Signal Infrastructure)
--- Maps activity execution time against host CPU utilization.
--- ============================================================
-WITH
-    activity_latencies AS (
-        SELECT
-            toStartOfInterval(timestamp, INTERVAL 1 MINUTE) AS minute,
-            name AS activity,
-            quantile(0.99)(durationNano / 1000000) AS p99_ms,
-            quantile(0.50)(durationNano / 1000000) AS p50_ms,
-            count() AS executions
-        FROM signoz_traces.signoz_index_v3
-        WHERE timestamp >= now() - INTERVAL 30 MINUTE
-            AND name LIKE 'activity.%'
-        GROUP BY minute, activity
-    )
-SELECT
-    al.minute,
-    al.activity,
-    round(al.p99_ms, 2) AS activity_p99_ms,
-    round(al.p50_ms, 2) AS activity_p50_ms,
-    al.executions,
-    round(al.p99_ms / NULLIF(al.p50_ms, 0), 2) AS latency_spread_ratio
-FROM activity_latencies al
-ORDER BY al.minute DESC, al.activity_p99_ms DESC;
-
-
--- ============================================================
--- QUERY 6: Workflow End-to-End SLO by Customer Tier
--- Measures workflow completion rate and latency against SLO targets.
+-- QUERY 4: Fraud Check Timeout Rate (Value Panel)
+-- Single-value metric: percentage of fraud checks exceeding 1s.
 -- ============================================================
 SELECT
-    stringTagMap['customer.tier'] AS tier,
-    count() AS total_workflows,
-    countIf(statusCode != 2) AS successful,
-    countIf(statusCode = 2) AS failed,
-    round(countIf(statusCode != 2) * 100.0 / count(), 2) AS success_rate_pct,
-    round(quantile(0.50)(durationNano / 1000000), 2) AS p50_duration_ms,
-    round(quantile(0.95)(durationNano / 1000000), 2) AS p95_duration_ms,
-    round(quantile(0.99)(durationNano / 1000000), 2) AS p99_duration_ms,
-    CASE stringTagMap['customer.tier']
-        WHEN 'enterprise' THEN 99.9
-        WHEN 'pro' THEN 99.5
-        ELSE 99.0
-    END AS slo_target_pct,
-    CASE
-        WHEN countIf(statusCode != 2) * 100.0 / count() >=
-            CASE stringTagMap['customer.tier']
-                WHEN 'enterprise' THEN 99.9
-                WHEN 'pro' THEN 99.5
-                ELSE 99.0
-            END THEN 'MEETING SLO'
-        ELSE 'BREACHING SLO'
-    END AS slo_status
-FROM signoz_traces.signoz_index_v3
+    round(countIf(duration_nano / 1000000 > 1000) * 100.0 / count(), 1) AS value
+FROM signoz_traces.distributed_signoz_index_v3
 WHERE timestamp >= now() - INTERVAL 1 HOUR
-    AND name = 'OrderProcessingWorkflow'
-    AND stringTagMap['customer.tier'] != ''
-GROUP BY tier
-ORDER BY success_rate_pct ASC;
+    AND name = 'activity.check_fraud'
+    AND serviceName = 'temporal-worker';
 
 
 -- ============================================================
--- QUERY 7: Workflow Step Bottleneck Analysis
--- Identifies which activity in the pipeline is the bottleneck.
+-- QUERY 5: SLO Error Budget Burn Rate Over Time (Time Series)
+-- Per-tier burn rate tracked over time for trend visualization.
 -- ============================================================
 SELECT
-    name AS activity_step,
-    count() AS executions,
-    round(avg(durationNano / 1000000), 2) AS avg_ms,
-    round(quantile(0.50)(durationNano / 1000000), 2) AS p50_ms,
-    round(quantile(0.95)(durationNano / 1000000), 2) AS p95_ms,
-    round(quantile(0.99)(durationNano / 1000000), 2) AS p99_ms,
-    countIf(statusCode = 2) AS errors,
-    round(countIf(statusCode = 2) * 100.0 / count(), 2) AS error_rate_pct
-FROM signoz_traces.signoz_index_v3
+    toStartOfInterval(timestamp, INTERVAL 5 MINUTE) AS ts,
+    attributes_string['customer.tier'] AS tier,
+    round(
+        countIf(has_error = true) * 100.0 /
+        (CASE
+            WHEN attributes_string['customer.tier'] = 'enterprise' THEN (1 - 0.999) * count()
+            WHEN attributes_string['customer.tier'] = 'pro' THEN (1 - 0.995) * count()
+            ELSE (1 - 0.990) * count()
+        END), 1
+    ) AS burn_rate_pct
+FROM signoz_traces.distributed_signoz_index_v3
 WHERE timestamp >= now() - INTERVAL 1 HOUR
     AND name LIKE 'activity.%'
-GROUP BY name
-ORDER BY p99_ms DESC;
+    AND serviceName = 'temporal-worker'
+    AND attributes_string['customer.tier'] != ''
+GROUP BY ts, tier
+ORDER BY ts;
+
+
+-- ============================================================
+-- QUERY 6: Traffic by Customer Tier Over Time (Time Series)
+-- Shows request volume per tier to identify traffic patterns.
+-- ============================================================
+SELECT
+    toStartOfInterval(timestamp, INTERVAL 1 MINUTE) AS ts,
+    attributes_string['customer.tier'] AS tier,
+    count() AS requests
+FROM signoz_traces.distributed_signoz_index_v3
+WHERE timestamp >= now() - INTERVAL 30 MINUTE
+    AND name LIKE 'activity.%'
+    AND serviceName = 'temporal-worker'
+    AND attributes_string['customer.tier'] != ''
+GROUP BY ts, tier
+ORDER BY ts;
+
+
+-- ============================================================
+-- QUERY 7: Activity P99 Latency Trend (Time Series)
+-- Per-activity P99 over time to identify latency spikes.
+-- ============================================================
+SELECT
+    toStartOfInterval(timestamp, INTERVAL 1 MINUTE) AS ts,
+    name AS activity,
+    round(quantile(0.99)(duration_nano) / 1000000, 2) AS p99_ms
+FROM signoz_traces.distributed_signoz_index_v3
+WHERE timestamp >= now() - INTERVAL 30 MINUTE
+    AND name LIKE 'activity.%'
+    AND serviceName = 'temporal-worker'
+GROUP BY ts, activity
+ORDER BY ts;
+
+
+-- ============================================================
+-- QUERY 8: Workflow Step Duration Breakdown (Time Series - Stacked)
+-- Average duration per activity over time. Use with "Stack series" ON.
+-- ============================================================
+SELECT
+    toStartOfInterval(timestamp, INTERVAL 1 MINUTE) AS ts,
+    name AS activity,
+    round(avg(duration_nano) / 1000000, 2) AS avg_ms
+FROM signoz_traces.distributed_signoz_index_v3
+WHERE timestamp >= now() - INTERVAL 30 MINUTE
+    AND name LIKE 'activity.%'
+    AND serviceName = 'temporal-worker'
+GROUP BY ts, activity
+ORDER BY ts;
+
+
+-- ============================================================
+-- QUERY 9: Cross-Signal — Error Logs Correlated with Trace Failures
+-- Joins log severity with trace error status in the same time window.
+-- Demonstrates multi-signal correlation (traces + logs).
+-- ============================================================
+SELECT
+    toStartOfInterval(timestamp, INTERVAL 5 MINUTE) AS ts,
+    name AS activity,
+    count() AS total_spans,
+    countIf(has_error = true) AS error_spans,
+    round(countIf(has_error = true) * 100.0 / count(), 2) AS error_rate_pct
+FROM signoz_traces.distributed_signoz_index_v3
+WHERE timestamp >= now() - INTERVAL 1 HOUR
+    AND name LIKE 'activity.%'
+    AND serviceName = 'temporal-worker'
+GROUP BY ts, activity
+HAVING error_spans > 0
+ORDER BY ts DESC, error_rate_pct DESC;

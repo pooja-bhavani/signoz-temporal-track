@@ -1,0 +1,263 @@
+{
+  "description": "Advanced SRE dashboard with Z-Score anomaly detection, per-tier latency drift analysis, SLO error budget burn rates, and cross-signal correlation for Temporal workflows.",
+  "tags": ["temporal", "slo", "anomaly-detection", "sre", "clickhouse"],
+  "title": "Temporal Workflow SLO & Root Cause Correlator",
+  "uploadedGrafana": false,
+  "version": "v5",
+  "layout": [
+    {"h": 3, "i": "value-fraud-timeout", "w": 4, "x": 0, "y": 0, "moved": false, "static": false},
+    {"h": 3, "i": "value-enterprise-budget", "w": 4, "x": 4, "y": 0, "moved": false, "static": false},
+    {"h": 3, "i": "value-workflows-processed", "w": 4, "x": 8, "y": 0, "moved": false, "static": false},
+    {"h": 6, "i": "ts-traffic-by-tier", "w": 6, "x": 0, "y": 3, "moved": false, "static": false},
+    {"h": 6, "i": "ts-burn-rate", "w": 6, "x": 6, "y": 3, "moved": false, "static": false},
+    {"h": 6, "i": "ts-p99-trend", "w": 6, "x": 0, "y": 9, "moved": false, "static": false},
+    {"h": 6, "i": "ts-step-breakdown", "w": 6, "x": 6, "y": 9, "moved": false, "static": false},
+    {"h": 6, "i": "table-zscore", "w": 12, "x": 0, "y": 15, "moved": false, "static": false},
+    {"h": 6, "i": "table-drift", "w": 12, "x": 0, "y": 21, "moved": false, "static": false},
+    {"h": 6, "i": "table-slo-budget", "w": 12, "x": 0, "y": 27, "moved": false, "static": false}
+  ],
+  "variables": {},
+  "widgets": [
+    {
+      "id": "value-fraud-timeout",
+      "title": "Fraud Check Timeout Rate %",
+      "description": "Percentage of fraud checks exceeding 1s (ML service overload indicator)",
+      "panelTypes": "value",
+      "query": {
+        "queryType": "clickhouse_sql",
+        "clickhouse_sql": [
+          {
+            "name": "A",
+            "legend": "",
+            "disabled": false,
+            "query": "SELECT round(countIf(duration_nano / 1000000 > 1000) * 100.0 / count(), 1) AS value FROM signoz_traces.distributed_signoz_index_v3 WHERE timestamp >= now() - INTERVAL 1 HOUR AND name = 'activity.check_fraud' AND serviceName = 'temporal-worker'"
+          }
+        ]
+      },
+      "fillSpans": false,
+      "thresholds": [],
+      "columnUnits": {},
+      "bucketCount": 30,
+      "bucketWidth": 0,
+      "stackedBarChart": false,
+      "timePreferance": "LAST_1_HR"
+    },
+    {
+      "id": "value-enterprise-budget",
+      "title": "Enterprise Error Budget Remaining %",
+      "description": "Remaining error budget for enterprise tier (SLO: 99.9%)",
+      "panelTypes": "value",
+      "query": {
+        "queryType": "clickhouse_sql",
+        "clickhouse_sql": [
+          {
+            "name": "A",
+            "legend": "",
+            "disabled": false,
+            "query": "SELECT round(100 - (countIf(has_error = true) * 100.0 / ((1 - 0.999) * count())), 1) AS value FROM signoz_traces.distributed_signoz_index_v3 WHERE timestamp >= now() - INTERVAL 1 HOUR AND name LIKE 'activity.%' AND serviceName = 'temporal-worker' AND attributes_string['customer.tier'] = 'enterprise'"
+          }
+        ]
+      },
+      "fillSpans": false,
+      "thresholds": [],
+      "columnUnits": {},
+      "bucketCount": 30,
+      "bucketWidth": 0,
+      "stackedBarChart": false,
+      "timePreferance": "LAST_1_HR"
+    },
+    {
+      "id": "value-workflows-processed",
+      "title": "Workflows Processed (1h)",
+      "description": "Total unique workflow executions in the past hour",
+      "panelTypes": "value",
+      "query": {
+        "queryType": "clickhouse_sql",
+        "clickhouse_sql": [
+          {
+            "name": "A",
+            "legend": "",
+            "disabled": false,
+            "query": "SELECT count(DISTINCT trace_id) AS value FROM signoz_traces.distributed_signoz_index_v3 WHERE timestamp >= now() - INTERVAL 1 HOUR AND name = 'activity.validate_order' AND serviceName = 'temporal-worker'"
+          }
+        ]
+      },
+      "fillSpans": false,
+      "thresholds": [],
+      "columnUnits": {},
+      "bucketCount": 30,
+      "bucketWidth": 0,
+      "stackedBarChart": false,
+      "timePreferance": "LAST_1_HR"
+    },
+    {
+      "id": "ts-traffic-by-tier",
+      "title": "Traffic by Customer Tier",
+      "description": "Request volume per customer tier over time",
+      "panelTypes": "graph",
+      "query": {
+        "queryType": "clickhouse_sql",
+        "clickhouse_sql": [
+          {
+            "name": "A",
+            "legend": "{{tier}}",
+            "disabled": false,
+            "query": "SELECT toStartOfInterval(timestamp, INTERVAL 1 MINUTE) AS ts, attributes_string['customer.tier'] AS tier, count() AS requests FROM signoz_traces.distributed_signoz_index_v3 WHERE timestamp >= now() - INTERVAL 30 MINUTE AND name LIKE 'activity.%' AND serviceName = 'temporal-worker' AND attributes_string['customer.tier'] != '' GROUP BY ts, tier ORDER BY ts"
+          }
+        ]
+      },
+      "fillSpans": false,
+      "thresholds": [],
+      "columnUnits": {},
+      "bucketCount": 30,
+      "bucketWidth": 0,
+      "stackedBarChart": false,
+      "timePreferance": "LAST_30_MIN"
+    },
+    {
+      "id": "ts-burn-rate",
+      "title": "SLO Error Budget Burn Rate",
+      "description": "Per-tier error budget consumption rate. >100% means budget exhausted.",
+      "panelTypes": "graph",
+      "query": {
+        "queryType": "clickhouse_sql",
+        "clickhouse_sql": [
+          {
+            "name": "A",
+            "legend": "{{tier}}",
+            "disabled": false,
+            "query": "SELECT toStartOfInterval(timestamp, INTERVAL 5 MINUTE) AS ts, attributes_string['customer.tier'] AS tier, round(countIf(has_error = true) * 100.0 / (CASE WHEN attributes_string['customer.tier'] = 'enterprise' THEN (1 - 0.999) * count() WHEN attributes_string['customer.tier'] = 'pro' THEN (1 - 0.995) * count() ELSE (1 - 0.990) * count() END), 1) AS burn_rate_pct FROM signoz_traces.distributed_signoz_index_v3 WHERE timestamp >= now() - INTERVAL 1 HOUR AND name LIKE 'activity.%' AND serviceName = 'temporal-worker' AND attributes_string['customer.tier'] != '' GROUP BY ts, tier ORDER BY ts"
+          }
+        ]
+      },
+      "fillSpans": false,
+      "thresholds": [],
+      "columnUnits": {},
+      "bucketCount": 30,
+      "bucketWidth": 0,
+      "stackedBarChart": false,
+      "timePreferance": "LAST_1_HR"
+    },
+    {
+      "id": "ts-p99-trend",
+      "title": "Activity P99 Latency Trend",
+      "description": "Per-activity P99 latency over time — identifies spikes instantly",
+      "panelTypes": "graph",
+      "query": {
+        "queryType": "clickhouse_sql",
+        "clickhouse_sql": [
+          {
+            "name": "A",
+            "legend": "{{activity}}",
+            "disabled": false,
+            "query": "SELECT toStartOfInterval(timestamp, INTERVAL 1 MINUTE) AS ts, name AS activity, round(quantile(0.99)(duration_nano) / 1000000, 2) AS p99_ms FROM signoz_traces.distributed_signoz_index_v3 WHERE timestamp >= now() - INTERVAL 30 MINUTE AND name LIKE 'activity.%' AND serviceName = 'temporal-worker' GROUP BY ts, activity ORDER BY ts"
+          }
+        ]
+      },
+      "fillSpans": false,
+      "thresholds": [],
+      "columnUnits": {},
+      "bucketCount": 30,
+      "bucketWidth": 0,
+      "stackedBarChart": false,
+      "timePreferance": "LAST_30_MIN"
+    },
+    {
+      "id": "ts-step-breakdown",
+      "title": "Workflow Step Duration Breakdown",
+      "description": "Average duration per activity (stacked). Shows which step dominates.",
+      "panelTypes": "graph",
+      "isStacked": true,
+      "query": {
+        "queryType": "clickhouse_sql",
+        "clickhouse_sql": [
+          {
+            "name": "A",
+            "legend": "{{activity}}",
+            "disabled": false,
+            "query": "SELECT toStartOfInterval(timestamp, INTERVAL 1 MINUTE) AS ts, name AS activity, round(avg(duration_nano) / 1000000, 2) AS avg_ms FROM signoz_traces.distributed_signoz_index_v3 WHERE timestamp >= now() - INTERVAL 30 MINUTE AND name LIKE 'activity.%' AND serviceName = 'temporal-worker' GROUP BY ts, activity ORDER BY ts"
+          }
+        ]
+      },
+      "fillSpans": true,
+      "thresholds": [],
+      "columnUnits": {},
+      "bucketCount": 30,
+      "bucketWidth": 0,
+      "stackedBarChart": false,
+      "timePreferance": "LAST_30_MIN"
+    },
+    {
+      "id": "table-zscore",
+      "title": "Activity Z-Score Anomaly Detector",
+      "description": "Statistical anomaly detection using standard deviation. Z-Score > 3 = anomalous.",
+      "panelTypes": "table",
+      "query": {
+        "queryType": "clickhouse_sql",
+        "clickhouse_sql": [
+          {
+            "name": "A",
+            "legend": "",
+            "disabled": false,
+            "query": "WITH activity_stats AS ( SELECT name AS Activity, count() AS Executions, round(avg(duration_nano) / 1000000, 2) AS avg_ms, round(stddevPop(duration_nano) / 1000000, 2) AS stddev_ms, round(quantile(0.50)(duration_nano) / 1000000, 2) AS p50_ms, round(quantile(0.95)(duration_nano) / 1000000, 2) AS p95_ms, round(quantile(0.99)(duration_nano) / 1000000, 2) AS p99_ms FROM signoz_traces.distributed_signoz_index_v3 WHERE timestamp >= now() - INTERVAL 1 HOUR AND name LIKE 'activity.%' AND serviceName = 'temporal-worker' GROUP BY name HAVING Executions >= 10 ) SELECT Activity, Executions, p50_ms, p95_ms, p99_ms, round((p99_ms - avg_ms) / nullIf(stddev_ms, 0), 2) AS z_score, round((p95_ms - p50_ms) / nullIf(p50_ms, 0) * 100, 1) AS tail_spread_pct, CASE WHEN (p99_ms - avg_ms) / nullIf(stddev_ms, 0) > 3.0 THEN '🔴 ANOMALOUS' WHEN (p99_ms - avg_ms) / nullIf(stddev_ms, 0) > 2.0 THEN '🟡 WARNING' WHEN (p95_ms - p50_ms) / nullIf(p50_ms, 0) > 1.0 THEN '🟠 LONG TAIL' ELSE '🟢 NORMAL' END AS health FROM activity_stats ORDER BY z_score DESC"
+          }
+        ]
+      },
+      "fillSpans": false,
+      "thresholds": [],
+      "columnUnits": {},
+      "bucketCount": 30,
+      "bucketWidth": 0,
+      "stackedBarChart": false,
+      "timePreferance": "LAST_1_HR"
+    },
+    {
+      "id": "table-drift",
+      "title": "Per-Tier Latency Drift (Blast Radius)",
+      "description": "Compares live P99 against 2-hour baseline. Detects tiers deviating from fleet norm.",
+      "panelTypes": "table",
+      "query": {
+        "queryType": "clickhouse_sql",
+        "clickhouse_sql": [
+          {
+            "name": "A",
+            "legend": "",
+            "disabled": false,
+            "query": "WITH global_baseline AS ( SELECT avg(duration_nano) / 1000000 AS global_avg_ms, quantile(0.99)(duration_nano) / 1000000 AS global_p99_ms FROM signoz_traces.distributed_signoz_index_v3 WHERE timestamp >= now() - INTERVAL 2 HOUR AND name LIKE 'activity.%' AND serviceName = 'temporal-worker' ), tier_live AS ( SELECT attributes_string['customer.tier'] AS tier, count() AS span_count, round(quantile(0.99)(duration_nano) / 1000000, 2) AS tier_p99_ms, round(avg(duration_nano) / 1000000, 2) AS tier_avg_ms, round(countIf(has_error = true) * 100.0 / count(), 2) AS error_rate_pct FROM signoz_traces.distributed_signoz_index_v3 WHERE timestamp >= now() - INTERVAL 30 MINUTE AND name LIKE 'activity.%' AND serviceName = 'temporal-worker' AND attributes_string['customer.tier'] != '' GROUP BY tier HAVING span_count >= 5 ) SELECT tl.tier AS customer_tier, tl.tier_p99_ms AS p99_ms, round(gb.global_p99_ms, 2) AS baseline_p99_ms, round(((tl.tier_p99_ms - gb.global_p99_ms) / gb.global_p99_ms) * 100, 1) AS drift_pct, tl.error_rate_pct, tl.span_count AS total_spans, CASE WHEN ((tl.tier_p99_ms - gb.global_p99_ms) / gb.global_p99_ms) > 1.0 THEN '🔴 CRITICAL' WHEN ((tl.tier_p99_ms - gb.global_p99_ms) / gb.global_p99_ms) > 0.5 THEN '🟡 DRIFTING' WHEN ((tl.tier_p99_ms - gb.global_p99_ms) / gb.global_p99_ms) > 0.1 THEN '🟠 ELEVATED' WHEN ((tl.tier_p99_ms - gb.global_p99_ms) / gb.global_p99_ms) < -0.1 THEN '🔵 UNDER-BASELINE' ELSE '🟢 HEALTHY' END AS status FROM tier_live tl CROSS JOIN global_baseline gb ORDER BY drift_pct DESC"
+          }
+        ]
+      },
+      "fillSpans": false,
+      "thresholds": [],
+      "columnUnits": {},
+      "bucketCount": 30,
+      "bucketWidth": 0,
+      "stackedBarChart": false,
+      "timePreferance": "LAST_30_MIN"
+    },
+    {
+      "id": "table-slo-budget",
+      "title": "SLO Error Budget Burn Rate",
+      "description": "Google SRE Error Budget methodology. Per-tier budget consumption with breach prediction.",
+      "panelTypes": "table",
+      "query": {
+        "queryType": "clickhouse_sql",
+        "clickhouse_sql": [
+          {
+            "name": "A",
+            "legend": "",
+            "disabled": false,
+            "query": "WITH tier_slo AS ( SELECT attributes_string['customer.tier'] AS tier, count() AS total_workflows, countIf(has_error = true) AS failed_workflows, CASE WHEN attributes_string['customer.tier'] = 'enterprise' THEN 0.999 WHEN attributes_string['customer.tier'] = 'pro' THEN 0.995 ELSE 0.990 END AS slo_target FROM signoz_traces.distributed_signoz_index_v3 WHERE timestamp >= now() - INTERVAL 1 HOUR AND name LIKE 'activity.%' AND serviceName = 'temporal-worker' AND attributes_string['customer.tier'] != '' GROUP BY tier ) SELECT tier, total_workflows, failed_workflows, slo_target * 100 AS slo_target_pct, round((1 - (toFloat64(failed_workflows) / total_workflows)) * 100, 3) AS actual_uptime_pct, round((1 - slo_target) * total_workflows, 1) AS error_budget_allowed, failed_workflows AS budget_consumed, round(toFloat64(failed_workflows) / nullIf((1 - slo_target) * total_workflows, 0) * 100, 1) AS budget_burn_pct, CASE WHEN toFloat64(failed_workflows) / nullIf((1 - slo_target) * total_workflows, 0) > 1.0 THEN '🔴 BUDGET EXHAUSTED' WHEN toFloat64(failed_workflows) / nullIf((1 - slo_target) * total_workflows, 0) > 0.7 THEN '🟡 BUDGET AT RISK' WHEN toFloat64(failed_workflows) / nullIf((1 - slo_target) * total_workflows, 0) > 0.4 THEN '🟠 BURNING FAST' ELSE '🟢 WITHIN BUDGET' END AS status FROM tier_slo ORDER BY budget_burn_pct DESC"
+          }
+        ]
+      },
+      "fillSpans": false,
+      "thresholds": [],
+      "columnUnits": {},
+      "bucketCount": 30,
+      "bucketWidth": 0,
+      "stackedBarChart": false,
+      "timePreferance": "LAST_1_HR"
+    }
+  ]
+}
