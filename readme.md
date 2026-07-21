@@ -116,6 +116,7 @@ http://<your-ec2-public-ip>:8088
 ```
 <img width="1469" height="883" alt="image" src="https://github.com/user-attachments/assets/35a255ff-2c6f-471a-a2b0-1e5ac161fe2b" />
 
+
 <img width="1464" height="882" alt="image" src="https://github.com/user-attachments/assets/195c2b84-ad75-4adf-b514-3035cc4e779b" />
 
 
