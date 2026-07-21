@@ -96,9 +96,11 @@ docker compose logs --tail=10 otel-collector
 docker compose logs --tail=10 worker
 ```
 
-<img width="1468" height="885" alt="Screenshot 2026-07-21 at 11 49 15 PM" src="https://github.com/user-attachments/assets/52e0586a-519d-42cd-af7f-ea1332728c50" />
-
 <img width="1470" height="810" alt="Screenshot 2026-07-21 at 11 46 14 PM" src="https://github.com/user-attachments/assets/c8d16037-c863-4a20-b6b7-450acb473a7b" />
+
+**Open your web browser and navigate to http://<your-ec2-public-ip>:8080. Because of your Security Group rules, only you will be able to see the live Temporal UI executing the 6,000+ workflows.**
+
+<img width="1468" height="885" alt="Screenshot 2026-07-21 at 11 49 15 PM" src="https://github.com/user-attachments/assets/52e0586a-519d-42cd-af7f-ea1332728c50" />
 
 <img width="1469" height="883" alt="image" src="https://github.com/user-attachments/assets/35a255ff-2c6f-471a-a2b0-1e5ac161fe2b" />
 
