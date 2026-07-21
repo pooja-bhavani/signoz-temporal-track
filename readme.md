@@ -37,14 +37,35 @@ sudo apt update && sudo apt upgrade -y
 sudo apt install -y git docker.io docker-compose-v2
 ```
 
-#### 3. Add the ubuntu user to the docker group (avoids needing sudo for docker commands)
+#### 3. Add the ubuntu user to the docker group ( this avoids need to use sudo for every docker commands)
 
 ```
 sudo usermod -aG docker ubuntu
 newgrp docker
 ```
 
+### Phase 3: Application Deployment
 
+Now, clone the hackathon repository and configure the environment to connect to SigNoz.
+
+#### 1. Clone the repository
+
+```
+git clone https://github.com/pooja-bhavani/signoz-temporal-track.git
+cd signoz-temporal-track
+```
+#### 2. Configure Environment Variables
+
+Replace the IP below with your actual SigNoz OTLP HTTP endpoint (Port 4318)
+
+```
+echo "SIGNOZ_ENDPOINT=http://<your-signoz-ip>:4318" > .env
+echo "RPS=3" >> .env
+echo "TEMPORAL_ADDRESS=temporal-server:7233" >> .env
+```
+
+# 3. Build the Go binaries and boot the cluster
+docker compose up --build -d
 
 
 
