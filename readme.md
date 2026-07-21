@@ -25,16 +25,22 @@ To ensure the telemetry pipeline and UI are secure, configure the inbound rules 
 Once the instance is running, SSH into your t3.large and install the required dependencies:
 
 #### 1. SSH into your Ubuntu 22.04 instance
+```
 ssh -i your-key.pem ubuntu@<your-ec2-public-ip>
+```
 
 #### 2. Update packages and install Docker & Git
+```
 sudo apt update && sudo apt upgrade -y
 sudo apt install -y git docker.io docker-compose-v2
+```
 
 #### 3. Add the ubuntu user to the docker group (avoids needing sudo for docker commands)
+
+```
 sudo usermod -aG docker ubuntu
 newgrp docker
-
+```
 
 
 
