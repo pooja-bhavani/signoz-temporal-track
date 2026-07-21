@@ -1,5 +1,7 @@
 # Temporal Workflow SLO & Root Cause Correlator
 
+<img width="1470" height="882" alt="image" src="https://github.com/user-attachments/assets/9ed7be9c-a1a7-47b4-9a7a-54b7f292fb8e" />
+
 **WeMakeDevs x SigNoz Hackathon — Track 2: Signals & Dashboards**
 
 This repository contains a production-grade observability system designed for Temporal workflows, heavily utilizing advanced OpenTelemetry instrumentation and SigNoz Query Builder mastery. It goes beyond basic server metrics to correlate traces, metrics, and structured logs into a single pane of glass, enabling site reliability engineers (SREs) and AI Agents to automatically identify the root cause of complex distributed system failures.
@@ -116,8 +118,8 @@ http://<your-ec2-public-ip>:8088
 ```
 <img width="1469" height="883" alt="image" src="https://github.com/user-attachments/assets/35a255ff-2c6f-471a-a2b0-1e5ac161fe2b" />
 
-
 <img width="1464" height="882" alt="image" src="https://github.com/user-attachments/assets/195c2b84-ad75-4adf-b514-3035cc4e779b" />
+
 
 
 
