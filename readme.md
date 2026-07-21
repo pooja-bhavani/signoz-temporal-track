@@ -1,4 +1,4 @@
-Temporal Workflow SLO & Root Cause Correlator
+<img width="1459" height="857" alt="image" src="https://github.com/user-attachments/assets/34682c5e-e4b0-41f4-98b1-a07d5545003e" /># Temporal Workflow SLO & Root Cause Correlator
 
 **WeMakeDevs x SigNoz Hackathon — Track 2: Signals & Dashboards**
 
@@ -21,7 +21,11 @@ To ensure the telemetry pipeline and UI are secure, configure the inbound rules 
 - Port 8080 (TCP): To access the Temporal Web UI.
 - Port 8000 (TCP): For application service routing/API access.
 - Port 8088 (TCP): For additional metric endpoints or load generator UI.
+- Port 4317 (TCP): For (OTLP gRPC)
+- Port 4318 (TCP): For (OTLP HTTP)
 - (Ensure all outbound traffic is allowed so the OTel Collector can reach your SigNoz instance).
+
+<img width="1470" height="837" alt="Screenshot 2026-07-21 at 11 37 47 PM" src="https://github.com/user-attachments/assets/bcdc296d-91c5-4a65-9c25-78b29f44db77" />
 
 ### Phase 2: Server Preparation (SSH & Docker)
 Once the instance is running, SSH into your t3.large and install the required dependencies:
@@ -70,6 +74,9 @@ echo "TEMPORAL_ADDRESS=temporal-server:7233" >> .env
 docker compose up --build -d
 ```
 
+<img width="1459" height="857" alt="image" src="https://github.com/user-attachments/assets/f6055f2e-6ef4-43c6-ba1c-18bb9ad60d03" />
+
+### Phase 4: Verification & Observability
 
 
 
