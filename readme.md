@@ -105,7 +105,7 @@ Open your web browser and navigate to http://<your-ec2-public-ip>:8080. Because 
 
 <img width="1468" height="885" alt="Screenshot 2026-07-21 at 11 49 15 PM" src="https://github.com/user-attachments/assets/52e0586a-519d-42cd-af7f-ea1332728c50" />
 
-- Check the temporal UI
+### Check the temporal UI
 
 http://<your-ec2-public-ip>:8088
 
