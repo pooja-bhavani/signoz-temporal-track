@@ -1,4 +1,4 @@
-<img width="1459" height="857" alt="image" src="https://github.com/user-attachments/assets/34682c5e-e4b0-41f4-98b1-a07d5545003e" /># Temporal Workflow SLO & Root Cause Correlator
+# Temporal Workflow SLO & Root Cause Correlator
 
 **WeMakeDevs x SigNoz Hackathon — Track 2: Signals & Dashboards**
 
