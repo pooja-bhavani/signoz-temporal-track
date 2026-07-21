@@ -14,6 +14,7 @@ A production-grade observability system for Temporal workflows that goes beyond 
 | **Custom OTel Instrumentation** | Business context (`customer.tier`, `order.amount`) in every span |
 | **Multi-Signal Correlation** | Traces + Metrics + Structured Logs via OTel SDK |
 | **Query Builder Mastery** | Bar charts, time series with Query Builder for trace data |
+| **SigNoz MCP (AI-Powered SRE)** | Autonomous investigation via signoz_aggregate_traces, signoz_search_traces |
 | **Template Augmentation** | Official Temporal SDK template + 10 custom advanced panels |
 
 ---
@@ -228,6 +229,11 @@ signoz-temporal-track/
 │   └── temporal-slo-correlator.json # Custom advanced dashboard (importable)
 ├── clickhouse-queries/
 │   └── advanced.sql                 # 9 advanced queries with explanations
+├── mcp/
+│   ├── README.md                    # MCP setup and tool documentation
+│   ├── mcp-config.json              # Claude Code MCP server configuration
+│   ├── investigation-queries.md     # Full autonomous SRE investigation log
+│   └── p99-fraud-check-panel.sql    # ClickHouse SQL generated via MCP
 └── temporal-config/
     └── development-sql.yaml
 ```
@@ -252,10 +258,58 @@ signoz-temporal-track/
 4. **Fleet drift detection** — Compares live data against rolling baseline to surface only anomalous segments
 5. **All 3 OTel signals** — Traces + Metrics + Structured Logs flowing through SigNoz
 6. **Business context in spans** — `customer.tier` enables per-tenant SLO (not just service-level)
-7. **Template Augmentation** — Official template as baseline + 10 custom panels showing Query Builder mastery
-8. **Production patterns** — Saga compensation, multi-tenant load, realistic failure injection
-9. **Importable dashboard JSON** — Judges can deploy and see results immediately
-10. **Real running system** — Not mock data; actual Temporal workflows processing orders
+7. **SigNoz MCP integration** — Claude Code autonomously discovers, investigates, and operationalizes monitoring via MCP tools
+8. **Template Augmentation** — Official template as baseline + 10 custom panels showing Query Builder mastery
+9. **Production patterns** — Saga compensation, multi-tenant load, realistic failure injection
+10. **Importable dashboard JSON** — Judges can deploy and see results immediately
+11. **Real running system** — Not mock data; actual Temporal workflows processing orders
+
+---
+
+## MCP Integration — AI-Powered Autonomous SRE
+
+This project integrates **SigNoz MCP** (Model Context Protocol) to enable AI agents
+(Claude Code) to autonomously investigate production issues without human
+intervention.
+
+### What We Demonstrated
+
+Using Claude Code connected to SigNoz via MCP, we performed a full
+**observe → investigate → operationalize** loop:
+
+1. **Discovery** — `signoz_list_services` + `signoz_get_field_keys` to find services,
+   operations, and custom attributes programmatically
+2. **Investigation** — `signoz_aggregate_traces` to compute P99 latency for
+   `activity.check_fraud` grouped by `customer.tier`
+3. **Diagnosis** — Uncovered a **silent failure**: 25s timeout ceiling across all
+   tiers (170x slower than other activities, zero errors thrown)
+4. **Operationalization** — Generated ClickHouse SQL for a permanent timeseries
+   dashboard panel (`mcp/p99-fraud-check-panel.sql`)
+
+### Setup
+
+```bash
+# 1. Get your SigNoz API key
+#    SigNoz UI → Settings → API Keys → Create New Key
+
+# 2. If SigNoz is on a remote host, tunnel the MCP port
+ssh -f -N -L 8000:localhost:8000 -i "your-key.pem" ubuntu@<EC2_IP>
+
+# 3. Configure Claude Code (add to .claude/settings.json)
+#    See mcp/mcp-config.json for the template
+```
+
+### MCP Tools Used
+
+| Tool | What It Did |
+|---|---|
+| `signoz_list_services` | Found `temporal-worker` and `temporal-starter` |
+| `signoz_get_field_keys` | Discovered `customer.tier`, `fraud.risk_score`, etc. |
+| `signoz_get_field_values` | Confirmed tier values: enterprise, pro, free |
+| `signoz_search_traces` | Located `activity.check_fraud` spans |
+| `signoz_aggregate_traces` | Computed P99 latency grouped by tier |
+
+See [`mcp/`](./mcp/) for full investigation details and generated queries.
 
 ---
 

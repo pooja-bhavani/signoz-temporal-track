@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "signoz": {
+      "type": "sse",
+      "url": "http://localhost:8000/mcp",
+      "headers": {
+        "SIGNOZ-API-KEY": "<YOUR_SIGNOZ_API_KEY>"
+      }
+    }
+  }
+}
