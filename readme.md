@@ -98,7 +98,9 @@ docker compose logs --tail=10 worker
 
 <img width="1470" height="810" alt="Screenshot 2026-07-21 at 11 46 14 PM" src="https://github.com/user-attachments/assets/c8d16037-c863-4a20-b6b7-450acb473a7b" />
 
+<img width="1469" height="883" alt="image" src="https://github.com/user-attachments/assets/35a255ff-2c6f-471a-a2b0-1e5ac161fe2b" />
 
+<img width="1464" height="882" alt="image" src="https://github.com/user-attachments/assets/195c2b84-ad75-4adf-b514-3035cc4e779b" />
 
 
 
