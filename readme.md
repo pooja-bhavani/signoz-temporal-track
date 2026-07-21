@@ -8,6 +8,6 @@ This repository contains a production-grade observability system designed for Te
 ### Phase 1: AWS Infrastructure Provisioning
 
 1. Launch an EC2 Instance:
-AMI: Ubuntu Server 22.04 LTS (HVM)
-Instance Type: t3.large (2 vCPUs, 8 GiB Memory — required to comfortably run Temporal + the load generator).
-Storage: 20 GB gp3 root volume.
+- AMI: Ubuntu Server 22.04 LTS (HVM)
+- Instance Type: t3.large (2 vCPUs, 8 GiB Memory — required to comfortably run Temporal + the load generator).
+- Storage: 20 GB gp3 root volume.
