@@ -78,7 +78,25 @@ docker compose up --build -d
 
 ### Phase 4: Verification & Observability
 
+Verify that the services are running and that OpenTelemetry data is successfully flowing out of your EC2 instance into SigNoz.
 
+#### 1. Check that all 7 containers are "Up"
+
+```
+docker compose ps
+```
+#### 2. Verify OpenTelemetry Collector is exporting traces/metrics to SigNoz without errors
+
+```
+docker compose logs --tail=10 otel-collector
+```
+
+#### 3. Verify the Temporal Worker is processing the load
+```
+docker compose logs --tail=10 worker
+```
+
+<img width="1470" height="810" alt="Screenshot 2026-07-21 at 11 46 14 PM" src="https://github.com/user-attachments/assets/c8d16037-c863-4a20-b6b7-450acb473a7b" />
 
 
 
