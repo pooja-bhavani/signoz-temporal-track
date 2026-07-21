@@ -64,9 +64,11 @@ echo "RPS=3" >> .env
 echo "TEMPORAL_ADDRESS=temporal-server:7233" >> .env
 ```
 
-# 3. Build the Go binaries and boot the cluster
-docker compose up --build -d
+#### 3. Build the Go binaries and boot the cluster
 
+```
+docker compose up --build -d
+```
 
 
 
