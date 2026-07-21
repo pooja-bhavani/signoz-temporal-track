@@ -12,6 +12,8 @@ This repository contains a production-grade observability system designed for Te
 - Instance Type: t3.large (2 vCPUs, 8 GiB Memory — required to comfortably run Temporal + the load generator).
 - Storage: 20 GB gp3 root volume.
 
+--- 
+
 2. Configure the Security Group:
 To ensure the telemetry pipeline and UI are secure, configure the inbound rules to only allow your specific IP address (My IP): open port
 - Port 22 (TCP): For SSH access to the server.
