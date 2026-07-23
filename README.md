@@ -1,324 +1,217 @@
 # Temporal Workflow SLO & Root Cause Correlator
 
+<img width="1470" height="882" alt="image" src="https://github.com/user-attachments/assets/9ed7be9c-a1a7-47b4-9a7a-54b7f292fb8e" />
+
+---
+
 **WeMakeDevs x SigNoz Hackathon — Track 2: Signals & Dashboards**
 
-A production-grade observability system for Temporal workflows that goes beyond basic metrics. Uses **Z-Score anomaly detection**, **per-tier SLO error budgets**, and **latency drift analysis** via ClickHouse SQL to surface root causes that standard dashboards miss.
+This repository contains a production-grade observability system designed for Temporal workflows, heavily utilizing advanced OpenTelemetry instrumentation and SigNoz Query Builder mastery. It goes beyond basic server metrics to correlate traces, metrics, and structured logs into a single pane of glass, enabling site reliability engineers (SREs) and AI Agents to automatically identify the root cause of complex distributed system failures.
+
+## What This Project Is About
+
+The **Temporal Workflow SLO & Root Cause Correlator** is built to solve a critical issue in modern distributed systems: when a complex workflow fails, standard infrastructure metrics (like CPU and Memory) rarely tell you why. Instead of traditional dashboards, this project provides a "Signals & Dashboards" pack which is specifically engineered for Track 2 of the hackathon. 
+
+#### It tracks Temporal workflows across three OpenTelemetry pillars:
+
+- Context-Aware Traces: Injecting business context (such as customer.tier and fraud.score) directly into OpenTelemetry spans.
+- Native SDK Metrics: Visualising out-of-the-box Temporal SDK histograms for end-to-end workflow latency.
+- Structured Logs: Utilizing the experimental OpenTelemetry Log bridge (go.opentelemetry.io/contrib/bridges/otelslog) to emit structured application logs directly to OTLP, perfectly correlated with trace IDs.
+
+The result is a set of advanced ClickHouse SQL panels that automatically flag statistically anomalous activities (Z-Score), predict SLO budget burn rates using Google SRE methodologies, and calculate regional blast radius drift.
 
 ---
 
-## What This Demonstrates
+## How I did this
 
-| SigNoz Capability | How We Use It |
-|---|---|
-| **ClickHouse SQL (CTEs + CROSS JOIN)** | Z-Score anomaly detection, baseline drift comparison |
-| **Custom OTel Instrumentation** | Business context (`customer.tier`, `order.amount`) in every span |
-| **Multi-Signal Correlation** | Traces + Metrics + Structured Logs via OTel SDK |
-| **Query Builder Mastery** | Bar charts, time series with Query Builder for trace data |
-| **SigNoz MCP (AI-Powered SRE)** | Autonomous investigation via signoz_aggregate_traces, signoz_search_traces |
-| **Template Augmentation** | Official Temporal SDK template + 10 custom advanced panels |
+I leveraged the Template Augmentation strategy. I started by importing the official Temporal SDK Metrics (Go) dashboard template from the SigNoz repository to secure baseline worker metrics.
+
+From there, I utilized Query Builder v5, which supports multiple aggregations in a single query for side-by-side comparisons. I wrote advanced ClickHouse SQL to build our custom correlator dashboard:
+
+- Z-Score Anomaly Detection: I used mathematical ClickHouse functions like stddevPop() to dynamically calculate standard deviations across our workflow activities, automatically flagging activities (like activity.check_fraud) as "ANOMALOUS" when they spiked beyond expected statistical thresholds.
+- Multi-Cluster Drift Detection: Used CROSS JOIN patterns in ClickHouse to isolate live execution latency and compare it against a rolling global baseline. This dynamically surfaces specific subsets of the fleet that are degrading.
+- W3C Trace Context Propagation: And ensured that every metric and structured error log contained a valid trace_id and span_id, adhering to the W3C Trace Context standard. This guarantees that SigNoz can seamlessly link a spike in activity timeouts directly to the underlying application error log.
 
 ---
 
-## Architecture
+*To perform this project*
 
+## Prerequisites
+
+### Phase 1: AWS Infrastructure Provisioning
+
+#### 1. Launch an EC2 Instance:
+- AMI: Ubuntu Server 22.04 LTS (HVM)
+- Instance Type: t3.large (2 vCPUs, 8 GiB Memory — required to comfortably run Temporal + the load generator).
+- Storage: 20 GB gp3 root volume.
+
+
+#### 2. Configure the Security Group:
+   
+To ensure the telemetry pipeline and UI are secure, configure the inbound rules to only allow your specific IP address (My IP): open port
+- Port 22 (TCP): For SSH access to the server.
+- Port 8080 (TCP): To access the Temporal Web UI.
+- Port 8000 (TCP): For application service routing/API access.
+- Port 8088 (TCP): For additional metric endpoints or load generator UI.
+- Port 4317 (TCP): For (OTLP gRPC)
+- Port 4318 (TCP): For (OTLP HTTP)
+- (Ensure all outbound traffic is allowed so the OTel Collector can reach your SigNoz instance).
+
+<img width="1470" height="837" alt="Screenshot 2026-07-21 at 11 37 47 PM" src="https://github.com/user-attachments/assets/bcdc296d-91c5-4a65-9c25-78b29f44db77" />
+
+### Phase 2: Server Preparation (SSH & Docker)
+Once the instance is running, SSH into your t3.large and install the required dependencies:
+
+#### 1. SSH into your Ubuntu 22.04 instance
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Load Generator (3 RPS)                         │
-│          8 customers × 3 tiers × 5 payment methods               │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │ HTTP POST /order
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Starter API (:8005)                            │
-│                    Starts Temporal workflows                      │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │ gRPC
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│              Temporal Server (:7233) + PostgreSQL                 │
-│                                                                   │
-│   OrderProcessingWorkflow (Saga Pattern)                         │
-│   ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐   │
-│   │ Validate │──▶│  Fraud   │──▶│ Payment  │──▶│Inventory │──▶ Ship
-│   │  Order   │   │  Check   │   │ Process  │   │ Reserve  │   │
-│   └──────────┘   └──────────┘   └──────────┘   └──────────┘   │
-│                       │                              │            │
-│                  ML timeout (3%)              Out of stock (4%)   │
-│                                              ──▶ RefundPayment   │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Worker (OTel Instrumented)                     │
-│                                                                   │
-│  Traces: Custom spans with business attributes                   │
-│  Metrics: Temporal SDK native (histogram, counters)              │
-│  Logs: Structured (slog → OTel Log Bridge → OTLP)               │
-│                                                                   │
-│  Every span carries: customer.id, customer.tier,                 │
-│  order.amount, payment.method, fraud.score                       │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │ OTLP gRPC
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│          OpenTelemetry Collector (contrib 0.104.0)                │
-│                                                                   │
-│  Receivers: otlp (gRPC + HTTP), hostmetrics                     │
-│  Processors: memory_limiter, resource enrichment, batch          │
-│  Exporters: otlphttp → SigNoz                                   │
-│  Pipelines: traces, metrics, logs (all 3 signals)               │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │ OTLP HTTP
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                       SigNoz (EC2)                                │
-│                                                                   │
-│  Dashboard 1: Temporal SDK Metrics (imported template)           │
-│  Dashboard 2: SLO & Root Cause Correlator (custom)              │
-│                                                                   │
-│  10 custom panels: 3 Value + 4 Time Series + 3 Table            │
-│  Advanced ClickHouse: CTEs, CROSS JOIN, stddevPop(), quantile()  │
-└─────────────────────────────────────────────────────────────────┘
+ssh -i your-key.pem ubuntu@<your-ec2-public-ip>
 ```
 
----
-
-## Dashboard Panels
-
-### Row 1: Status Indicators (Value Panels)
-| Panel | What It Shows |
-|---|---|
-| **Fraud Check Timeout Rate %** | % of fraud checks exceeding 1s — ML service overload signal |
-| **Enterprise Error Budget Remaining %** | SLO budget remaining for highest-priority tier |
-| **Workflows Processed (1h)** | Total unique workflow executions |
-
-### Row 2: Time Series (Trends)
-| Panel | What It Shows |
-|---|---|
-| **Traffic by Customer Tier** | Volume per tier over time — identifies traffic imbalances |
-| **SLO Error Budget Burn Rate** | Per-tier budget burn trending — predicts breaches |
-| **Activity P99 Latency Trend** | Per-activity P99 over time — identifies spikes |
-| **Workflow Step Duration Breakdown** | Stacked area showing which step dominates total time |
-
-### Row 3: Advanced Tables (SRE Analysis)
-| Panel | What It Shows |
-|---|---|
-| **Activity Z-Score Anomaly Detector** | Uses `stddevPop()` to flag statistically anomalous activities |
-| **Per-Tier Latency Drift (Blast Radius)** | CROSS JOIN baseline comparison — detects fleet drift |
-| **SLO Error Budget Burn Rate** | Google SRE methodology — budget consumed vs allowed |
-
----
-
-## Key ClickHouse SQL Techniques
-
-### 1. Z-Score Anomaly Detection
-```sql
--- Uses stddevPop() for statistical standard deviation
--- Z-Score > 3 = activity P99 is 3σ above mean (statistically anomalous)
-round((p99_ms - avg_ms) / nullIf(stddev_ms, 0), 2) AS z_score
+#### 2. Update packages and install Docker & Git
+```
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y git docker.io docker-compose-v2
 ```
 
-### 2. CROSS JOIN Drift Detection
-```sql
--- 2-hour global baseline (CTE) joined against 30-min live data
--- Detects relative deviation, not absolute thresholds
-FROM tier_live tl CROSS JOIN global_baseline gb
-WHERE ((tl.tier_p99_ms - gb.global_p99_ms) / gb.global_p99_ms) > 0.5
+#### 3. Add the ubuntu user to the docker group ( this avoids need to use sudo for every docker commands)
+
+```
+sudo usermod -aG docker ubuntu
+newgrp docker
 ```
 
-### 3. SLO Error Budget Math
-```sql
--- Google SRE: budget = (1 - SLO_target) × total_requests
--- Burn rate = actual_failures / budget_allowed
-round(toFloat64(failed) / nullIf((1 - 0.999) * count(), 0) * 100, 1) AS burn_pct
+### Phase 3: Application Deployment
+
+Now, clone the hackathon repository and configure the environment to connect to SigNoz.
+
+#### 1. Clone the repository
+
 ```
-
----
-
-## Multi-Signal Instrumentation
-
-### Traces (Custom Business Context)
-Every activity span includes:
-- `customer.id` — which tenant triggered this
-- `customer.tier` — enterprise/pro/free (enables per-tier SLO)
-- `order.amount` — monetary value (enables cost-of-error analysis)
-- `payment.method` — credit_card/crypto/paypal
-- `fraud.score` — ML confidence (0-1)
-
-### Metrics (Temporal SDK Native)
-Via `go.temporal.io/sdk/contrib/opentelemetry`:
-- `temporal_workflow_endtoend_latency` (histogram)
-- `temporal_activity_execution_latency` (histogram)
-- `temporal_activity_succeed_endtoend_latency` (histogram)
-- `temporal_workflow_task_schedule_to_start_latency` (histogram)
-- Host metrics: CPU, memory, disk, network (via hostmetrics receiver)
-
-### Logs (Structured OTel Bridge)
-Via `go.opentelemetry.io/contrib/bridges/otelslog`:
-- Error logs with `trace_id` for correlation
-- Business context in every log: `order_id`, `customer_tier`, `amount`
-- Severity levels: INFO (success), WARN (inventory failures), ERROR (payment/fraud failures)
-
----
-
-## Quick Start
-
-```bash
-# 1. Clone
 git clone https://github.com/pooja-bhavani/signoz-temporal-track.git
 cd signoz-temporal-track
+```
+#### 2. Configure Environment Variables
 
-# 2. Set SigNoz endpoint (your SigNoz instance's OTLP HTTP port)
-echo "SIGNOZ_ENDPOINT=http://172.17.0.1:4318" > .env
+Replace the IP below with your actual SigNoz OTLP HTTP endpoint (Port 4318)
 
-# 3. Start everything
+```
+echo "SIGNOZ_ENDPOINT=http://<your-signoz-ip>:4318" > .env
+echo "RPS=3" >> .env
+echo "TEMPORAL_ADDRESS=temporal-server:7233" >> .env
+```
+
+#### 3. Build the Go binaries and boot the cluster
+
+```
 docker compose up --build -d
-
-# 4. Verify workflows are running
-docker compose logs --tail=5 load-generator
-# Output: OK order=ORD-000001 customer=cust-acme-001 tier=enterprise amount=$...
-
-# 5. Open SigNoz → Services → temporal-worker, temporal-starter
-# 6. Import dashboards from dashboards/ directory
 ```
+
+<img width="1459" height="857" alt="image" src="https://github.com/user-attachments/assets/f6055f2e-6ef4-43c6-ba1c-18bb9ad60d03" />
+
+### Phase 4: Verification & Observability
+
+Verify that the services are running and that OpenTelemetry data is successfully flowing out of your EC2 instance into SigNoz.
+
+#### 1. Check that all 7 containers are "Up"
+
+```
+docker compose ps
+```
+#### 2. Verify OpenTelemetry Collector is exporting traces/metrics to SigNoz without errors
+
+```
+docker compose logs --tail=10 otel-collector
+```
+
+#### 3. Verify the Temporal Worker is processing the load
+```
+docker compose logs --tail=10 worker
+```
+
+<img width="1470" height="810" alt="Screenshot 2026-07-21 at 11 46 14 PM" src="https://github.com/user-attachments/assets/c8d16037-c863-4a20-b6b7-450acb473a7b" />
+
+
+#### Check UI
+
+Open your web browser and check the SigNoz UI Because of your Security Group rules, only you will be able to see the live Temporal UI executing the 6,000+ workflows.
+
+```
+http://<your-ec2-public-ip>:8080
+```
+
+<img width="1468" height="885" alt="Screenshot 2026-07-21 at 11 49 15 PM" src="https://github.com/user-attachments/assets/52e0586a-519d-42cd-af7f-ea1332728c50" />
+
+#### Check the temporal UI
+
+```
+http://<your-ec2-public-ip>:8088
+```
+<img width="1469" height="883" alt="image" src="https://github.com/user-attachments/assets/35a255ff-2c6f-471a-a2b0-1e5ac161fe2b" />
+
+<img width="1464" height="882" alt="image" src="https://github.com/user-attachments/assets/195c2b84-ad75-4adf-b514-3035cc4e779b" />
 
 ---
 
-## Importing Dashboards
+## Challenges I Faced & How I Overcame Them
 
-### Dashboard 1: Official Temporal SDK Metrics
-```
-SigNoz → Dashboards → New Dashboard → Import JSON
-File: dashboards/temporal-go-sdk-metrics.json
-```
+1. While building the Activity Latency Distribution panel, the SigNoz query builder initially returned a "No Data" state despite traces flowing properly.
 
-### Dashboard 2: Custom SLO & Root Cause Correlator
-```
-SigNoz → Dashboards → New Dashboard → Import JSON
-File: dashboards/temporal-slo-correlator.json
-```
+- Solution: I discovered that selecting the native "Histogram / Buckets" panel type in SigNoz expects raw, un-bucketed data so the UI can bucket it automatically. Because my advanced ClickHouse SQL was pre-bucketing the latency using mathematical functions (floor(...) * 100), I overcame this by switching the Panel Type to a Bar Chart, which successfully rendered our complex custom bucketing logic.
 
-Or create panels manually using queries from `clickhouse-queries/advanced.sql`
+
+2. In a globally distributed Temporal deployment, filtering traces and logs for a specific `customer.tier` or worker node traditionally requires scanning nearly 100% of the database blocks, causing slow dashboard load times
 
 ---
 
-## Project Structure
+## MCP Setup
+
+Step 1: From your local machine, tunnel port 8000 to the EC2 instance:
 
 ```
-signoz-temporal-track/
-├── docker-compose.yaml              # Full stack (Temporal + Worker + Collector)
-├── otel-collector-config.yaml       # 3-pipeline config (traces + metrics + logs)
-├── go.mod
-├── shared/
-│   ├── telemetry.go                 # OTel init (traces + metrics + logs)
-│   └── workflows.go                 # Shared types (OrderInput, OrderResult)
-├── worker/
-│   ├── main.go                      # Temporal worker with OTel interceptor
-│   ├── workflows/
-│   │   ├── order_processing.go      # 5-step saga with compensation
-│   │   └── activities.go            # Activities with custom spans + structured logs
-│   └── Dockerfile
-├── starter/
-│   ├── main.go                      # HTTP API that starts workflows
-│   └── Dockerfile
-├── loadgen/
-│   ├── main.go                      # Multi-tenant traffic generator (8 customers)
-│   └── Dockerfile
-├── dashboards/
-│   ├── temporal-go-sdk-metrics.json # Official SigNoz Temporal template
-│   └── temporal-slo-correlator.json # Custom advanced dashboard (importable)
-├── clickhouse-queries/
-│   └── advanced.sql                 # 9 advanced queries with explanations
-├── mcp/
-│   ├── README.md                    # MCP setup and tool documentation
-│   ├── mcp-config.json              # Claude Code MCP server configuration
-│   ├── investigation-queries.md     # Full autonomous SRE investigation log
-│   └── p99-fraud-check-panel.sql    # ClickHouse SQL generated via MCP
-└── temporal-config/
-    └── development-sql.yaml
+ssh -f -N -L 8000:localhost:8000 -i "path to the key" ubuntu@13.235.136.2SSH Tunnel
 ```
 
----
+Step 2: Register the SigNoz MCP Server:
 
-## Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SIGNOZ_ENDPOINT` | `http://host.docker.internal:4318` | SigNoz OTLP HTTP endpoint |
-| `RPS` | `3` | Orders per second from load generator |
-| `TEMPORAL_ADDRESS` | `temporal-server:7233` | Temporal server address |
-
----
-
-## Why This Wins Track 2
-
-1. **ClickHouse SQL mastery** — CTEs, CROSS JOIN, stddevPop(), quantile(), conditional aggregation, self-JOIN patterns
-2. **Statistical anomaly detection** — Z-Score (not static thresholds) identifies which activity is statistically deviating
-3. **Google SRE methodology** — Error budgets per tier with burn rate prediction
-4. **Fleet drift detection** — Compares live data against rolling baseline to surface only anomalous segments
-5. **All 3 OTel signals** — Traces + Metrics + Structured Logs flowing through SigNoz
-6. **Business context in spans** — `customer.tier` enables per-tenant SLO (not just service-level)
-7. **SigNoz MCP integration** — Claude Code autonomously discovers, investigates, and operationalizes monitoring via MCP tools
-8. **Template Augmentation** — Official template as baseline + 10 custom panels showing Query Builder mastery
-9. **Production patterns** — Saga compensation, multi-tenant load, realistic failure injection
-10. **Importable dashboard JSON** — Judges can deploy and see results immediately
-11. **Real running system** — Not mock data; actual Temporal workflows processing orders
-
----
-
-## MCP Integration — AI-Powered Autonomous SRE
-
-This project integrates **SigNoz MCP** (Model Context Protocol) to enable AI agents
-(Claude Code) to autonomously investigate production issues without human
-intervention.
-
-### What We Demonstrated
-
-Using Claude Code connected to SigNoz via MCP, we performed a full
-**observe → investigate → operationalize** loop:
-
-1. **Discovery** — `signoz_list_services` + `signoz_get_field_keys` to find services,
-   operations, and custom attributes programmatically
-2. **Investigation** — `signoz_aggregate_traces` to compute P99 latency for
-   `activity.check_fraud` grouped by `customer.tier`
-3. **Diagnosis** — Uncovered a **silent failure**: 25s timeout ceiling across all
-   tiers (170x slower than other activities, zero errors thrown)
-4. **Operationalization** — Generated ClickHouse SQL for a permanent timeseries
-   dashboard panel (`mcp/p99-fraud-check-panel.sql`)
-
-### Setup
-
-```bash
-# 1. Get your SigNoz API key
-#    SigNoz UI → Settings → API Keys → Create New Key
-
-# 2. If SigNoz is on a remote host, tunnel the MCP port
-ssh -f -N -L 8000:localhost:8000 -i "your-key.pem" ubuntu@<EC2_IP>
-
-# 3. Configure Claude Code (add to .claude/settings.json)
-#    See mcp/mcp-config.json for the template
+```
+claude mcp add --transport http signoz-local http://localhost:8000/mcp \
+    --header "SIGNOZ-API-KEY: <your-api-key>"
 ```
 
-### MCP Tools Used
+Expected: Authorization or SIGNOZ-API-KEY header required 
 
-| Tool | What It Did |
-|---|---|
-| `signoz_list_services` | Found `temporal-worker` and `temporal-starter` |
-| `signoz_get_field_keys` | Discovered `customer.tier`, `fraud.risk_score`, etc. |
-| `signoz_get_field_values` | Confirmed tier values: enterprise, pro, free |
-| `signoz_search_traces` | Located `activity.check_fraud` spans |
-| `signoz_aggregate_traces` | Computed P99 latency grouped by tier |
+Step 3: Get API Key
 
-See [`mcp/`](./mcp/) for full investigation details and generated queries.
+Go to http://localhost:8080 → Settings → API Keys → Create New Key
+
+If you are using instance http://<public-ip>:8080
+
+Step 4: Now open/restart Claude Code — it will have signoz_* tools available natively
+
+Inside Claude Run:
+```
+/mcp
+```
+
+<img width="1452" height="198" alt="image" src="https://github.com/user-attachments/assets/ccf8a560-dcda-492e-abc3-5a2df875b8a8" />
+
+<img width="1466" height="274" alt="image" src="https://github.com/user-attachments/assets/592e15e5-fef4-4363-90fb-da75439048b8" />
+
+<img width="1029" height="452" alt="image" src="https://github.com/user-attachments/assets/f03af390-d536-464f-8e53-7f336d39d103" />
+
+<img width="1470" height="815" alt="image" src="https://github.com/user-attachments/assets/4fcaa1fc-c6b3-4078-9a8a-f72313d19965" />
+
+
+**How the Agentic AI executes this:** Without any human intervention, the AI will autonomously invoke underlying MCP tools like signoz:signoz_search_traces and signoz:signoz_aggregate_traces to query the trace data, calculate the P99 latency, and report back the exact business impact. It can also utilize signoz-explaining-dashboards to analyze and explain our custom Z-Score ClickHouse SQL logic to junior engineers
+
+--- 
+
+## Conclusion
+
+Thank you to the WeMakeDevs and SigNoz teams for hosting this hackathon! We loved pushing the limits of ClickHouse, OpenTelemetry, and the newest AI Agent capabilities.
 
 ---
 
-## Tech Stack
+**Built by:** Pooja Bhavani  
 
-- **Go 1.23** + Temporal SDK v1.30.0
-- **Temporal Server** 1.25.2 (self-hosted, PostgreSQL)
-- **OpenTelemetry Go SDK** 1.31.0 + Temporal OTel contrib 0.6.0
-- **OTel Log Bridge** (slog → OTLP) for structured logs
-- **OTel Collector Contrib** 0.104.0 (3 pipelines: traces, metrics, logs)
-- **SigNoz** (ClickHouse backend, self-hosted on EC2)
-- **Docker Compose** (single command deploy)
+
