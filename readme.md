@@ -20,6 +20,22 @@ The **Temporal Workflow SLO & Root Cause Correlator** is built to solve a critic
 
 The result is a set of advanced ClickHouse SQL panels that automatically flag statistically anomalous activities (Z-Score), predict SLO budget burn rates using Google SRE methodologies, and calculate regional blast radius drift.
 
+---
+
+## How I did this
+
+I leveraged the Template Augmentation strategy. I started by importing the official Temporal SDK Metrics (Go) dashboard template from the SigNoz repository to secure baseline worker metrics.
+
+From there, I utilized Query Builder v5, which supports multiple aggregations in a single query for side-by-side comparisons. I wrote advanced ClickHouse SQL to build our custom correlator dashboard:
+
+- Z-Score Anomaly Detection: I used mathematical ClickHouse functions like stddevPop() to dynamically calculate standard deviations across our workflow activities, automatically flagging activities (like activity.check_fraud) as "ANOMALOUS" when they spiked beyond expected statistical thresholds.
+- Multi-Cluster Drift Detection: Used CROSS JOIN patterns in ClickHouse to isolate live execution latency and compare it against a rolling global baseline. This dynamically surfaces specific subsets of the fleet that are degrading.
+- W3C Trace Context Propagation: And ensured that every metric and structured error log contained a valid trace_id and span_id, adhering to the W3C Trace Context standard. This guarantees that SigNoz can seamlessly link a spike in activity timeouts directly to the underlying application error log.
+
+---
+
+*To perform this project*
+
 ## Prerequisites
 
 ### Phase 1: AWS Infrastructure Provisioning
