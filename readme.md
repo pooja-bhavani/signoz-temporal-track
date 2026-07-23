@@ -168,7 +168,7 @@ http://<your-ec2-public-ip>:8088
 Step 1: From your local machine, tunnel port 8000 to the EC2 instance:
 
 ```
-ssh -f -N -L 8000:localhost:8000 -i "/path to the key" ubuntu@13.235.136.2SSH Tunnel
+ssh -f -N -L 8000:localhost:8000 -i "path to the key" ubuntu@13.235.136.2SSH Tunnel
 ```
 
 Step 2: Verify MCP Server is Responding
@@ -185,7 +185,14 @@ Go to http://localhost:8080 → Settings → API Keys → Create New Key
 
 If you are using instance http://<public-ip>:8080
 
+Step 4: Test MCP with API Key — List Tools
 
+curl -s http://localhost:8000/mcp \
+  -H "SIGNOZ-API-KEY: <YOUR_KEY>" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
+
+Expected: JSON response listing all signoz_* tools.
 
 
 
