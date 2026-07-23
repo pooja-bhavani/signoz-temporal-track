@@ -186,13 +186,15 @@ Go to http://localhost:8080 → Settings → API Keys → Create New Key
 If you are using instance http://<public-ip>:8080
 
 Step 4: Test MCP with API Key — List Tools
-
+```
 curl -s http://localhost:8000/mcp \
   -H "SIGNOZ-API-KEY: <YOUR_KEY>" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
-
+```
 Expected: JSON response listing all signoz_* tools.
+
+<img width="1470" height="606" alt="image" src="https://github.com/user-attachments/assets/850470c3-3695-4935-b7be-0e07863da20e" />
 
 
 
