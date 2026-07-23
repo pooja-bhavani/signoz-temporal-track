@@ -201,7 +201,14 @@ Inside Claude Run:
 
 <img width="1470" height="815" alt="image" src="https://github.com/user-attachments/assets/4fcaa1fc-c6b3-4078-9a8a-f72313d19965" />
 
+## How the Agentic AI executes this: 
 
+Without any human intervention, the AI will autonomously invoke underlying MCP tools like signoz:signoz_search_traces and signoz:signoz_aggregate_traces to query the trace data, calculate the P99 latency, and report back the exact business impact. It can also utilize signoz-explaining-dashboards to analyze and explain our custom Z-Score ClickHouse SQL logic to junior engineers
 
+## Conclusion
+
+Thank you to the WeMakeDevs and SigNoz teams for hosting this hackathon! We loved pushing the limits of ClickHouse, OpenTelemetry, and the newest AI Agent capabilities.
+
+**Built by:** Pooja Bhavani  
 
 
