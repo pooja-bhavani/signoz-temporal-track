@@ -183,7 +183,7 @@ Step 3: Get API Key
 
 Go to http://localhost:8080 → Settings → API Keys → Create New Key
 
-If you are using instance http://<public ip>:8080
+If you are using instance http://<public-ip>:8080
 
 
 
