@@ -150,11 +150,16 @@ http://<your-ec2-public-ip>:8088
 
 <img width="1464" height="882" alt="image" src="https://github.com/user-attachments/assets/195c2b84-ad75-4adf-b514-3035cc4e779b" />
 
+---
+
+## Challenges I Faced & How I Overcame Them
+
+1. While building the Activity Latency Distribution panel, the SigNoz query builder initially returned a "No Data" state despite traces flowing properly.
+
+- Solution: I discovered that selecting the native "Histogram / Buckets" panel type in SigNoz expects raw, un-bucketed data so the UI can bucket it automatically. Because my advanced ClickHouse SQL was pre-bucketing the latency using mathematical functions (floor(...) * 100), I overcame this by switching the Panel Type to a Bar Chart, which successfully rendered our complex custom bucketing logic.
 
 
-
-
-
+2. In a globally distributed Temporal deployment, filtering traces and logs for a specific `customer.tier` or worker node traditionally requires scanning nearly 100% of the database blocks, causing slow dashboard load times
 
 
 
