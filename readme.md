@@ -171,10 +171,11 @@ Step 1: From your local machine, tunnel port 8000 to the EC2 instance:
 ssh -f -N -L 8000:localhost:8000 -i "path to the key" ubuntu@13.235.136.2SSH Tunnel
 ```
 
-Step 2: Verify MCP Server is Responding
+Step 2: Register the SigNoz MCP Server:
 
 ```
-curl -s http://localhost:8000/mcp
+claude mcp add --transport http signoz-local http://localhost:8000/mcp \
+    --header "SIGNOZ-API-KEY: <your-api-key>"
 ```
 
 Expected: Authorization or SIGNOZ-API-KEY header required 
@@ -185,16 +186,13 @@ Go to http://localhost:8080 → Settings → API Keys → Create New Key
 
 If you are using instance http://<public-ip>:8080
 
-Step 4: Test MCP with API Key — List Tools
-```
-curl -s http://localhost:8000/mcp \
-  -H "SIGNOZ-API-KEY: <YOUR_KEY>" \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
-```
-Expected: JSON response listing all signoz_* tools.
+Step 4: Now open/restart Claude Code — it will have signoz_* tools available natively
 
-<img width="1470" height="606" alt="image" src="https://github.com/user-attachments/assets/850470c3-3695-4935-b7be-0e07863da20e" />
+Inside Claude Run:
+```
+/mcp
+```
+
 
 
 
