@@ -161,11 +161,25 @@ http://<your-ec2-public-ip>:8088
 
 2. In a globally distributed Temporal deployment, filtering traces and logs for a specific `customer.tier` or worker node traditionally requires scanning nearly 100% of the database blocks, causing slow dashboard load times
 
+---
 
+## MCP Setup
 
+Step 1: From your local machine, tunnel port 8000 to the EC2 instance:
 
+```
+ssh -f -N -L 8000:localhost:8000 -i "/path to the key" ubuntu@13.235.136.2SSH Tunnel
+```
 
+Step 2: Verify MCP Server is Responding
 
+```
+curl -s http://localhost:8000/mcp
+```
+
+Expected: Authorization or SIGNOZ-API-KEY header required 
+
+Step 3: 
 
 
 
