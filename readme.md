@@ -209,7 +209,9 @@ Inside Claude Run:
 ## Conclusion
 
 Thank you to the WeMakeDevs and SigNoz teams for hosting this hackathon! We loved pushing the limits of ClickHouse, OpenTelemetry, and the newest AI Agent capabilities.
+
 ---
+
 **Built by:** Pooja Bhavani  
 
 
