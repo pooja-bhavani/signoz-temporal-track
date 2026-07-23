@@ -193,6 +193,13 @@ Inside Claude Run:
 /mcp
 ```
 
+<img width="1452" height="198" alt="image" src="https://github.com/user-attachments/assets/ccf8a560-dcda-492e-abc3-5a2df875b8a8" />
+
+<img width="1466" height="274" alt="image" src="https://github.com/user-attachments/assets/592e15e5-fef4-4363-90fb-da75439048b8" />
+
+<img width="1029" height="452" alt="image" src="https://github.com/user-attachments/assets/f03af390-d536-464f-8e53-7f336d39d103" />
+
+<img width="1470" height="815" alt="image" src="https://github.com/user-attachments/assets/4fcaa1fc-c6b3-4078-9a8a-f72313d19965" />
 
 
 
