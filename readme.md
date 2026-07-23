@@ -181,8 +181,9 @@ Expected: Authorization or SIGNOZ-API-KEY header required
 
 Step 3: Get API Key
 
-Go to http://13.235.136.2:8080 → Settings → API Keys → Create New Key
+Go to http://localhost:8080 → Settings → API Keys → Create New Key
 
+If you are using instance http://<public ip>:8080
 
 
 
