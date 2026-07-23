@@ -6,6 +6,18 @@
 
 This repository contains a production-grade observability system designed for Temporal workflows, heavily utilizing advanced OpenTelemetry instrumentation and SigNoz Query Builder mastery. It goes beyond basic server metrics to correlate traces, metrics, and structured logs into a single pane of glass, enabling site reliability engineers (SREs) and AI Agents to automatically identify the root cause of complex distributed system failures.
 
+## What This Project Is About
+
+The **Temporal Workflow SLO & Root Cause Correlator** is built to solve a critical issue in modern distributed systems: when a complex workflow fails, standard infrastructure metrics (like CPU and Memory) rarely tell you why. Instead of traditional dashboards, this project provides a "Signals & Dashboards" pack which is specifically engineered for Track 2 of the hackathon. 
+
+#### It tracks Temporal workflows across three OpenTelemetry pillars:
+
+- Context-Aware Traces: Injecting business context (such as customer.tier and fraud.score) directly into OpenTelemetry spans.
+- Native SDK Metrics: Visualising out-of-the-box Temporal SDK histograms for end-to-end workflow latency.
+- Structured Logs: Utilizing the experimental OpenTelemetry Log bridge (go.opentelemetry.io/contrib/bridges/otelslog) to emit structured application logs directly to OTLP, perfectly correlated with trace IDs.
+
+The result is a set of advanced ClickHouse SQL panels that automatically flag statistically anomalous activities (Z-Score), predict SLO budget burn rates using Google SRE methodologies, and calculate regional blast radius drift
+
 ## Prerequisites
 
 ### Phase 1: AWS Infrastructure Provisioning
