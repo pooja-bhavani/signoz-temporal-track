@@ -179,7 +179,9 @@ curl -s http://localhost:8000/mcp
 
 Expected: Authorization or SIGNOZ-API-KEY header required 
 
-Step 3: 
+Step 3: Get API Key
+
+Go to http://13.235.136.2:8080 → Settings → API Keys → Create New Key
 
 
 
