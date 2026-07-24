@@ -80,6 +80,15 @@ sudo usermod -aG docker ubuntu
 newgrp docker
 ```
 
+#### 4. Deploying with Foundry (For Judges)
+SigNoz recently deprecated traditional Docker installation scripts in favor of Foundry for self-hosted deployments. To make reproducing this environment as seamless as possible, we have pre-generated the Foundry configuration files using the SigNoz CLI.
+
+At the root of this repository, you will find:
+* `casting.yaml`
+* `casting.yaml.lock`
+
+This configuration explicitly sets `deployment.mode: docker` and `deployment.flavor: compose` to match our environment, and most importantly, it sets `mcp.spec.enabled: true` so that the SigNoz MCP Server boots up automatically to support the Agentic AI SRE feature.
+
 ### Phase 3: Application Deployment
 
 Now, clone the hackathon repository and configure the environment to connect to SigNoz.
