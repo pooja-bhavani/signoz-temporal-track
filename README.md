@@ -203,7 +203,7 @@ Inside Claude Run:
 /mcp
 ```
 
-**If you find any error while running the MCP part run this and then re-run the above commands again**
+**If you find any error while running the MCP part run this and then re-run the MCP section commands again**
 
 Kill existing tunnel
 ```  
