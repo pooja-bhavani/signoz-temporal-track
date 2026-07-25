@@ -204,6 +204,7 @@ Inside Claude Run:
 ```
 
 **If you find any error while running the MCP part run this and then re-run the above commands again**
+
 Kill existing tunnel
 ```  
 lsof -ti:8000 | xargs kill
