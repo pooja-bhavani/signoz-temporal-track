@@ -203,6 +203,11 @@ Inside Claude Run:
 /mcp
 ```
 
+**If you find any error while running the MCP part run this and then re-run the above commands again**
+Kill existing tunnel
+```  
+lsof -ti:8000 | xargs kill
+```
 <img width="1452" height="198" alt="image" src="https://github.com/user-attachments/assets/ccf8a560-dcda-492e-abc3-5a2df875b8a8" />
 
 <img width="1466" height="274" alt="image" src="https://github.com/user-attachments/assets/592e15e5-fef4-4363-90fb-da75439048b8" />
